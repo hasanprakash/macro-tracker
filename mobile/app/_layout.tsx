@@ -16,6 +16,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import "react-native-reanimated";
@@ -32,6 +33,8 @@ export default function RootLayout() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [signingIn, setSigningIn] = useState<boolean>(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
 
   useEffect(() => {
     // 1. Get initial session
@@ -113,6 +116,28 @@ export default function RootLayout() {
     }
   };
 
+  // Sign in with Email and Password
+  const signInWithEmail = async () => {
+    if (!email || !password) {
+      Alert.alert("Error", "Please enter both email and password.");
+      return;
+    }
+    try {
+      setSigningIn(true);
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) throw error;
+    } catch (error: any) {
+      Alert.alert("Authentication Error", error.message);
+    } finally {
+      setSigningIn(false);
+    }
+  };
+
+
   // Loading state while verifying auth session
   if (loading) {
     const isDark = colorScheme === "dark";
@@ -129,7 +154,11 @@ export default function RootLayout() {
   }
 
   // 3. If NO active session, render Login Screen
-  if (!session) {
+  const useLocalSupabase = process.env.EXPO_PUBLIC_USE_LOCAL_SUPABASE === 'true';
+  console.log("useLocalSupabase:", useLocalSupabase);
+  // console.log("session:", session);
+  
+  if (!session && !useLocalSupabase) {
     const isDark = colorScheme === "dark";
     return (
       <View
@@ -163,6 +192,57 @@ export default function RootLayout() {
             },
           ]}
         >
+          <TextInput
+            style={[
+              styles.input,
+              {
+                color: isDark ? "#F8FAFC" : "#0F172A",
+                backgroundColor: isDark ? "#0F172A" : "#F8FAFC",
+                borderColor: isDark ? "#334155" : "#E2E8F0",
+              },
+            ]}
+            placeholder="Email"
+            placeholderTextColor={isDark ? "#64748B" : "#94A3B8"}
+            value={email}
+            onChangeText={setEmail}
+            autoCapitalize="none"
+            keyboardType="email-address"
+          />
+          <TextInput
+            style={[
+              styles.input,
+              {
+                color: isDark ? "#F8FAFC" : "#0F172A",
+                backgroundColor: isDark ? "#0F172A" : "#F8FAFC",
+                borderColor: isDark ? "#334155" : "#E2E8F0",
+                marginBottom: 20,
+              },
+            ]}
+            placeholder="Password"
+            placeholderTextColor={isDark ? "#64748B" : "#94A3B8"}
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+          />
+
+          <Pressable
+            style={({ pressed }) => [
+              styles.emailButton,
+              pressed && styles.buttonPressed,
+              signingIn && styles.buttonDisabled,
+            ]}
+            onPress={signInWithEmail}
+            disabled={signingIn}
+          >
+            <Text style={styles.emailButtonText}>Sign in</Text>
+          </Pressable>
+
+          <View style={styles.dividerContainer}>
+            <View style={[styles.divider, { backgroundColor: isDark ? "#334155" : "#E2E8F0" }]} />
+            <Text style={[styles.dividerText, { color: isDark ? "#64748B" : "#94A3B8" }]}>or</Text>
+            <View style={[styles.divider, { backgroundColor: isDark ? "#334155" : "#E2E8F0" }]} />
+          </View>
+
           <Pressable
             style={({ pressed }) => [
               styles.googleButton,
@@ -259,6 +339,44 @@ const styles = StyleSheet.create({
     shadowRadius: 24,
     elevation: 4,
     marginBottom: 24,
+  },
+  input: {
+    width: "100%",
+    height: 50,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    fontSize: 16,
+    marginBottom: 12,
+  },
+  emailButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#6366F1",
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    width: "100%",
+    marginBottom: 16,
+  },
+  emailButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#FFFFFF",
+  },
+  dividerContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    width: "100%",
+    marginBottom: 16,
+  },
+  divider: {
+    flex: 1,
+    height: 1,
+  },
+  dividerText: {
+    paddingHorizontal: 12,
+    fontSize: 14,
   },
   googleButton: {
     flexDirection: "row",

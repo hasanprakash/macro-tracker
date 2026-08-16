@@ -1,0 +1,54 @@
+TABLE PERMISSION:
+grant select, insert on public.food_entries to authenticated;
+grant select, insert, update
+on public.daily_summaries
+to authenticated;
+
+
+TO CHECK ROW LEVEL SECURITY:
+select
+    schemaname,
+    tablename,
+    rowsecurity
+from pg_tables
+where tablename in ('food_entries', 'daily_summaries');
+
+TO ENABLE RLS:
+alter table public.food_entries enable row level security;
+
+
+MEAL INSERT POLICY:
+create policy "Users can insert their own food entries"
+on public.food_entries
+for insert
+to authenticated
+with check (auth.uid() = user_id);
+
+create policy "Users can insert their own daily summaries"
+on public.daily_summaries
+for insert
+to authenticated
+with check (auth.uid() = user_id);
+
+
+MEAL READ POLICY:
+create policy "Users can view their own food entries"
+on public.food_entries
+for select
+to authenticated
+using (auth.uid() = user_id);
+
+create policy "Users can view their own daily summaries"
+on public.daily_summaries
+for select
+to authenticated
+using (auth.uid() = user_id);
+
+
+MEAL UPDATE POLICY:
+create policy "Users can update their own daily summaries"
+on public.daily_summaries
+for update
+to authenticated
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);

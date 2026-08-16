@@ -1,0 +1,17 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Attach to Supabase Edge Function",
+      "type": "node",
+      "request": "attach",
+      "address": "127.0.0.1",
+      "port": 8083,
+      "localRoot": "${workspaceFolder}/supabase/functions",
+      "remoteRoot": "/home/deno/functions/",
+      "sourceMaps": true,
+      "enableContentValidation": false,
+      "restart": true
+    }
+  ]
+}

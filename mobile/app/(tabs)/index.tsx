@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   Alert,
   Pressable,
@@ -9,27 +9,64 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
+import * as ImagePicker from 'expo-image-picker';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { supabase } from '@/lib/supabase';
+import { DailySummaryCard } from '@/components/DailySummaryCard';
+import { MealCard } from '@/components/MealCard';
+import { MealLogModal } from '@/components/MealLogModal';
 
 export default function HomeScreen() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
   const [userName, setUserName] = useState<string>('');
   const [userEmail, setUserEmail] = useState<string>('');
+  const [userId, setUserId] = useState<string>('');
+
+  const [dailySummary, setDailySummary] = useState({
+    calories: 0,
+    protein: 0,
+    carbs: 0,
+    fat: 0,
+  });
+
+  const [modalVisible, setModalVisible] = useState(false);
+  const [activeMealType, setActiveMealType] = useState('Breakfast');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const fetchDailySummary = async (uid: string) => {
+    const today = new Date().toISOString().split('T')[0];
+    const { data, error } = await supabase
+      .from('daily_summaries')
+      .select('*')
+      .eq('user_id', uid)
+      .eq('summary_date', today)
+      .single();
+
+    if (data) {
+      setDailySummary({
+        calories: Number(data.total_calories || 0),
+        protein: Number(data.total_protein || 0),
+        carbs: Number(data.total_carbs || 0),
+        fat: Number(data.total_fat || 0),
+      });
+    }
+  };
 
   useEffect(() => {
-    const fetchUser = async () => {
+    const fetchUserAndData = async () => {
       const {
         data: { user },
       } = await supabase.auth.getUser();
       if (user) {
         setUserName(user.user_metadata?.full_name || user.email?.split('@')[0] || 'User');
         setUserEmail(user.email || '');
+        setUserId(user.id);
+        fetchDailySummary(user.id);
       }
     };
-    fetchUser();
+    fetchUserAndData();
   }, []);
 
   const handleSignOut = async () => {
@@ -46,11 +83,64 @@ export default function HomeScreen() {
     return 'Good Evening';
   };
 
-  const quickActions = [
-    { icon: 'camera-outline' as const, label: 'Scan Food', color: '#6366F1' },
-    { icon: 'add-circle-outline' as const, label: 'Log Meal', color: '#10B981' },
-    { icon: 'barbell-outline' as const, label: 'Workout', color: '#F59E0B' },
-    { icon: 'water-outline' as const, label: 'Water', color: '#3B82F6' },
+  const openMealLog = (mealType: string) => {
+    setActiveMealType(mealType);
+    setModalVisible(true);
+  };
+
+  const submitMealLog = async (text?: string, imageBase64?: string) => {
+    setIsSubmitting(true);
+    const { data: { session }, error: sessionError, } = await supabase.auth.getSession();
+    console.log("SESSION ERROR:", sessionError);
+    console.log("HAS SESSION:", !!session);
+    console.log("USER ID:", session?.user?.id);
+    console.log(
+      "ACCESS TOKEN EXISTS:",
+      !!session?.access_token
+    );
+
+    try {
+      const { data, error } = await supabase.functions.invoke('log-meal', {
+        body: { meal_type: activeMealType, text: text, image_base64: imageBase64 }
+      });
+      
+      if (error) throw error;
+      
+      if (userId) {
+        await fetchDailySummary(userId);
+      }
+      
+      setModalVisible(false);
+      Alert.alert('Success', `Logged ${data.data.meal_name}`);
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Failed to log meal');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleScanPress = async () => {
+    const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
+    if (permissionResult.granted === false) {
+      Alert.alert("Permission Required", "You need to allow camera access to scan food.");
+      return;
+    }
+    
+    const pickerResult = await ImagePicker.launchCameraAsync({
+      base64: true,
+      quality: 0.5, // keep image size manageable
+    });
+
+    if (!pickerResult.canceled && pickerResult.assets[0].base64) {
+      submitMealLog(undefined, pickerResult.assets[0].base64);
+    }
+  };
+
+  const mealOptions = [
+    { title: 'Breakfast', icon: 'sunny-outline' as const, color: '#F59E0B' },
+    { title: 'Lunch', icon: 'partly-sunny-outline' as const, color: '#10B981' },
+    { title: 'Dinner', icon: 'moon-outline' as const, color: '#6366F1' },
+    { title: 'Snacks', icon: 'cafe-outline' as const, color: '#EC4899' },
   ];
 
   return (
@@ -86,102 +176,27 @@ export default function HomeScreen() {
         </View>
 
         {/* Daily Summary Card */}
-        <View style={[styles.summaryCard, { backgroundColor: '#6366F1' }]}>
-          <View style={styles.summaryHeader}>
-            <Text style={styles.summaryTitle}>Today's Progress</Text>
-            <View style={styles.summaryBadge}>
-              <Text style={styles.summaryBadgeText}>Day 1</Text>
-            </View>
-          </View>
+        <DailySummaryCard
+          calories={dailySummary.calories}
+          protein={dailySummary.protein}
+          carbs={dailySummary.carbs}
+          fat={dailySummary.fat}
+        />
 
-          <View style={styles.macroRow}>
-            <View style={styles.macroItem}>
-              <Text style={styles.macroValue}>0</Text>
-              <Text style={styles.macroLabel}>Calories</Text>
-              <View style={[styles.macroBar, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-                <View style={[styles.macroBarFill, { width: '0%', backgroundColor: '#FCD34D' }]} />
-              </View>
-            </View>
-            <View style={styles.macroDivider} />
-            <View style={styles.macroItem}>
-              <Text style={styles.macroValue}>0g</Text>
-              <Text style={styles.macroLabel}>Protein</Text>
-              <View style={[styles.macroBar, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-                <View style={[styles.macroBarFill, { width: '0%', backgroundColor: '#34D399' }]} />
-              </View>
-            </View>
-            <View style={styles.macroDivider} />
-            <View style={styles.macroItem}>
-              <Text style={styles.macroValue}>0g</Text>
-              <Text style={styles.macroLabel}>Carbs</Text>
-              <View style={[styles.macroBar, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-                <View style={[styles.macroBarFill, { width: '0%', backgroundColor: '#60A5FA' }]} />
-              </View>
-            </View>
-            <View style={styles.macroDivider} />
-            <View style={styles.macroItem}>
-              <Text style={styles.macroValue}>0g</Text>
-              <Text style={styles.macroLabel}>Fat</Text>
-              <View style={[styles.macroBar, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-                <View style={[styles.macroBarFill, { width: '0%', backgroundColor: '#FB923C' }]} />
-              </View>
-            </View>
-          </View>
-        </View>
-
-        {/* Quick Actions */}
+        {/* Meal Logging Section */}
         <Text style={[styles.sectionTitle, { color: isDark ? '#F8FAFC' : '#0F172A' }]}>
-          Quick Actions
+          Log Meals
         </Text>
         <View style={styles.actionsGrid}>
-          {quickActions.map((action, index) => (
-            <Pressable
-              key={index}
-              style={({ pressed }) => [
-                styles.actionCard,
-                {
-                  backgroundColor: isDark ? '#1E293B' : '#FFFFFF',
-                  borderColor: isDark ? '#334155' : '#E2E8F0',
-                },
-                pressed && { opacity: 0.8, transform: [{ scale: 0.96 }] },
-              ]}
-            >
-              <View style={[styles.actionIconWrap, { backgroundColor: action.color + '18' }]}>
-                <Ionicons name={action.icon} size={26} color={action.color} />
-              </View>
-              <Text
-                style={[styles.actionLabel, { color: isDark ? '#CBD5E1' : '#334155' }]}
-              >
-                {action.label}
-              </Text>
-            </Pressable>
+          {mealOptions.map((meal) => (
+            <MealCard
+              key={meal.title}
+              title={meal.title}
+              icon={meal.icon}
+              color={meal.color}
+              onPress={() => openMealLog(meal.title)}
+            />
           ))}
-        </View>
-
-        {/* Recent Meals Placeholder */}
-        <Text style={[styles.sectionTitle, { color: isDark ? '#F8FAFC' : '#0F172A' }]}>
-          Recent Meals
-        </Text>
-        <View
-          style={[
-            styles.emptyCard,
-            {
-              backgroundColor: isDark ? '#1E293B' : '#FFFFFF',
-              borderColor: isDark ? '#334155' : '#E2E8F0',
-            },
-          ]}
-        >
-          <Ionicons
-            name="restaurant-outline"
-            size={40}
-            color={isDark ? '#475569' : '#CBD5E1'}
-          />
-          <Text style={[styles.emptyText, { color: isDark ? '#64748B' : '#94A3B8' }]}>
-            No meals logged yet today
-          </Text>
-          <Text style={[styles.emptySubtext, { color: isDark ? '#475569' : '#CBD5E1' }]}>
-            Tap "Log Meal" to get started
-          </Text>
         </View>
 
         {/* Account info */}
@@ -191,6 +206,16 @@ export default function HomeScreen() {
           </Text>
         </View>
       </ScrollView>
+
+      {/* Modal for Meal Logging */}
+      <MealLogModal
+        visible={modalVisible}
+        mealType={activeMealType}
+        onClose={() => setModalVisible(false)}
+        onSubmitText={(text) => submitMealLog(text)}
+        onScanPress={handleScanPress}
+        isSubmitting={isSubmitting}
+      />
     </View>
   );
 }
@@ -232,75 +257,6 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
-  summaryCard: {
-    borderRadius: 24,
-    padding: 24,
-    marginBottom: 28,
-    shadowColor: '#6366F1',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    elevation: 8,
-  },
-  summaryHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  summaryTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  summaryBadge: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  summaryBadgeText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  macroRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-  macroItem: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  macroValue: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    marginBottom: 2,
-  },
-  macroLabel: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: 'rgba(255, 255, 255, 0.7)',
-    marginBottom: 8,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  macroBar: {
-    width: '80%',
-    height: 4,
-    borderRadius: 2,
-  },
-  macroBarFill: {
-    height: '100%',
-    borderRadius: 2,
-  },
-  macroDivider: {
-    width: 1,
-    height: 50,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    marginTop: 4,
-  },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '700',
@@ -310,49 +266,8 @@ const styles = StyleSheet.create({
   actionsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    justifyContent: 'space-between',
     marginBottom: 28,
-  },
-  actionCard: {
-    width: '47%',
-    paddingVertical: 20,
-    paddingHorizontal: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.04,
-    shadowRadius: 12,
-    elevation: 2,
-  },
-  actionIconWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  actionLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  emptyCard: {
-    borderRadius: 20,
-    borderWidth: 1,
-    padding: 32,
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  emptyText: {
-    fontSize: 15,
-    fontWeight: '600',
-    marginTop: 12,
-  },
-  emptySubtext: {
-    fontSize: 13,
-    marginTop: 4,
   },
   accountInfo: {
     alignItems: 'center',
