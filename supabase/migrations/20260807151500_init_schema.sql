@@ -31,7 +31,7 @@ CREATE TABLE public.food_entries (
   raw_input TEXT,
   
   ai_provider TEXT DEFAULT 'google',
-  ai_model TEXT DEFAULT 'gemini-1.5-flash',
+  ai_model TEXT DEFAULT 'gemini-3.5-flash',
   ai_response_json JSONB,
   confidence NUMERIC,
   

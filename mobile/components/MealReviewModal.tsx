@@ -1,0 +1,367 @@
+import React, { useState, useCallback } from 'react';
+import {
+  Modal,
+  View,
+  Text,
+  StyleSheet,
+  Pressable,
+  TextInput,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import type { FoodItem, MealEstimate, MealTotals } from '@/lib/types';
+
+interface MealReviewModalProps {
+  visible: boolean;
+  mealType: string;
+  estimate: MealEstimate | null;
+  onClose: () => void;
+  onSave: (mealName: string, foods: FoodItem[], totals: MealTotals) => void;
+  isSaving: boolean;
+}
+
+/**
+ * Recalculates a food item's macros proportionally based on a new quantity.
+ * This runs instantly on every keystroke for realtime feedback.
+ */
+function recalculateFoodItem(original: FoodItem, newQuantity: number): FoodItem {
+  if (original.quantity === 0 || newQuantity === 0) {
+    return { ...original, quantity: newQuantity, calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 };
+  }
+  const ratio = newQuantity / original.quantity;
+  return {
+    ...original,
+    quantity: newQuantity,
+    calories: Math.round(original.calories * ratio),
+    protein_g: Math.round(original.protein_g * ratio * 10) / 10,
+    carbs_g: Math.round(original.carbs_g * ratio * 10) / 10,
+    fat_g: Math.round(original.fat_g * ratio * 10) / 10,
+  };
+}
+
+/** Computes totals from an array of food items */
+function computeTotals(foods: FoodItem[]): MealTotals {
+  return foods.reduce(
+    (acc, f) => ({
+      calories: acc.calories + f.calories,
+      protein_g: Math.round((acc.protein_g + f.protein_g) * 10) / 10,
+      carbs_g: Math.round((acc.carbs_g + f.carbs_g) * 10) / 10,
+      fat_g: Math.round((acc.fat_g + f.fat_g) * 10) / 10,
+    }),
+    { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 }
+  );
+}
+
+export function MealReviewModal({
+  visible,
+  mealType,
+  estimate,
+  onClose,
+  onSave,
+  isSaving,
+}: MealReviewModalProps) {
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === 'dark';
+
+  // We keep the *original* estimate to compute ratios from, and a *current* list
+  // that tracks the user's edits.
+  const [originalFoods, setOriginalFoods] = useState<FoodItem[]>([]);
+  const [currentFoods, setCurrentFoods] = useState<FoodItem[]>([]);
+  const [mealName, setMealName] = useState('');
+
+  // Re-initialize when the estimate changes
+  React.useEffect(() => {
+    if (estimate) {
+      setOriginalFoods(estimate.foods);
+      setCurrentFoods(estimate.foods);
+      setMealName(estimate.meal_name);
+    }
+  }, [estimate]);
+
+  const totals = computeTotals(currentFoods);
+
+  const handleQuantityChange = useCallback(
+    (index: number, value: string) => {
+      const numericValue = parseFloat(value) || 0;
+      setCurrentFoods((prev) => {
+        const updated = [...prev];
+        // Recalculate proportionally from the *original* food item's values
+        updated[index] = recalculateFoodItem(originalFoods[index], numericValue);
+        return updated;
+      });
+    },
+    [originalFoods]
+  );
+
+  const handleSave = () => {
+    onSave(mealName, currentFoods, totals);
+  };
+
+  if (!estimate) return null;
+
+  const cardBg = isDark ? '#1E293B' : '#FFFFFF';
+  const textPrimary = isDark ? '#F8FAFC' : '#0F172A';
+  const textSecondary = isDark ? '#94A3B8' : '#64748B';
+  const borderColor = isDark ? '#334155' : '#E2E8F0';
+  const inputBg = isDark ? '#0F172A' : '#F8FAFC';
+  const rowBg = isDark ? '#334155' : '#F1F5F9';
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.overlay}
+      >
+        <View style={[styles.modalContent, { backgroundColor: cardBg }]}>
+          {/* Header */}
+          <View style={styles.header}>
+            <View>
+              <Text style={[styles.title, { color: textPrimary }]}>Review {mealType}</Text>
+              <Text style={[styles.confidence, { color: textSecondary }]}>
+                AI Confidence: {Math.round((estimate.confidence || 0.9) * 100)}%
+              </Text>
+            </View>
+            <Pressable onPress={onClose} disabled={isSaving}>
+              <Ionicons name="close" size={24} color={textSecondary} />
+            </Pressable>
+          </View>
+
+          {/* Meal Name */}
+          <View style={[styles.mealNameRow, { borderColor }]}>
+            <Text style={{ fontSize: 24 }}>🍽️</Text>
+            <Text style={[styles.mealNameText, { color: textPrimary }]}>{mealName}</Text>
+          </View>
+
+          {/* Foods Table */}
+          <ScrollView style={styles.foodsList} showsVerticalScrollIndicator={false}>
+            {/* Table Header */}
+            <View style={styles.tableHeader}>
+              <Text style={[styles.tableHeaderText, { color: textSecondary, flex: 2 }]}>Food</Text>
+              <Text style={[styles.tableHeaderText, { color: textSecondary, flex: 1.2, textAlign: 'center' }]}>Amount</Text>
+              <Text style={[styles.tableHeaderText, { color: textSecondary, flex: 1, textAlign: 'right' }]}>Calories</Text>
+            </View>
+
+            {/* Food Rows */}
+            {currentFoods.map((food, index) => (
+              <View key={index} style={[styles.foodRow, { backgroundColor: rowBg }]}>
+                <View style={{ flex: 2 }}>
+                  <Text style={[styles.foodName, { color: textPrimary }]}>{food.name}</Text>
+                  <Text style={[styles.foodMacros, { color: textSecondary }]}>
+                    P: {food.protein_g}g · C: {food.carbs_g}g · F: {food.fat_g}g
+                  </Text>
+                </View>
+                <View style={[styles.quantityCell, { flex: 1.2 }]}>
+                  <TextInput
+                    style={[
+                      styles.quantityInput,
+                      { backgroundColor: inputBg, color: textPrimary, borderColor },
+                    ]}
+                    value={food.quantity.toString()}
+                    onChangeText={(v) => handleQuantityChange(index, v)}
+                    keyboardType="numeric"
+                    selectTextOnFocus
+                  />
+                  <Text style={[styles.unitText, { color: textSecondary }]}>{food.unit}</Text>
+                </View>
+                <Text style={[styles.calorieText, { color: textPrimary, flex: 1 }]}>
+                  {food.calories} kcal
+                </Text>
+              </View>
+            ))}
+          </ScrollView>
+
+          {/* Totals */}
+          <View style={[styles.totalsContainer, { borderColor }]}>
+            <View style={styles.totalRow}>
+              <Text style={[styles.totalLabel, { color: textPrimary }]}>Total</Text>
+              <Text style={[styles.totalCalories, { color: '#6366F1' }]}>{totals.calories} kcal</Text>
+            </View>
+            <View style={styles.macroSummary}>
+              <View style={styles.macroChip}>
+                <View style={[styles.macroDot, { backgroundColor: '#34D399' }]} />
+                <Text style={[styles.macroChipText, { color: textSecondary }]}>
+                  Protein {totals.protein_g}g
+                </Text>
+              </View>
+              <View style={styles.macroChip}>
+                <View style={[styles.macroDot, { backgroundColor: '#60A5FA' }]} />
+                <Text style={[styles.macroChipText, { color: textSecondary }]}>
+                  Carbs {totals.carbs_g}g
+                </Text>
+              </View>
+              <View style={styles.macroChip}>
+                <View style={[styles.macroDot, { backgroundColor: '#FB923C' }]} />
+                <Text style={[styles.macroChipText, { color: textSecondary }]}>
+                  Fat {totals.fat_g}g
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Save Button */}
+          <Pressable
+            style={({ pressed }) => [
+              styles.saveButton,
+              pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
+              isSaving && styles.saveButtonDisabled,
+            ]}
+            onPress={handleSave}
+            disabled={isSaving}
+          >
+            <Text style={styles.saveButtonText}>
+              {isSaving ? 'Saving...' : 'Save Meal'}
+            </Text>
+          </Pressable>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+const styles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    maxHeight: '90%',
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 16,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  confidence: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  mealNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingBottom: 16,
+    marginBottom: 12,
+    borderBottomWidth: 1,
+  },
+  mealNameText: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  foodsList: {
+    maxHeight: 280,
+    marginBottom: 12,
+  },
+  tableHeader: {
+    flexDirection: 'row',
+    paddingHorizontal: 12,
+    paddingBottom: 8,
+  },
+  tableHeaderText: {
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  foodRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  foodName: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  foodMacros: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  quantityCell: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  quantityInput: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    fontSize: 15,
+    fontWeight: '600',
+    textAlign: 'center',
+    width: 60,
+  },
+  unitText: {
+    fontSize: 12,
+  },
+  calorieText: {
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'right',
+  },
+  totalsContainer: {
+    borderTopWidth: 1,
+    paddingTop: 14,
+    marginBottom: 16,
+  },
+  totalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  totalLabel: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  totalCalories: {
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  macroSummary: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  macroChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  macroDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  macroChipText: {
+    fontSize: 13,
+  },
+  saveButton: {
+    backgroundColor: '#6366F1',
+    paddingVertical: 16,
+    borderRadius: 14,
+    alignItems: 'center',
+  },
+  saveButtonDisabled: {
+    backgroundColor: '#A5B4FC',
+    opacity: 0.7,
+  },
+  saveButtonText: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '700',
+  },
+});
