@@ -2,6 +2,24 @@
 // Shared TypeScript types for Macro Tracker
 // =============================================================================
 
+/** User profile and goals from the profiles table */
+export interface Profile {
+  id: string;
+  display_name: string | null;
+  height_cm: number | null;
+  gender: string | null;
+  date_of_birth: string | null;
+  activity_level: string | null;
+  weight_kg: number | null;
+  target_weight_kg: number | null;
+  age: number | null;
+  goal: string | null;
+  target_calories: number | null;
+  target_protein: number | null;
+  target_carbs: number | null;
+  target_fat: number | null;
+}
+
 /** A single food item with nutritional breakdown */
 export interface FoodItem {
   name: string;

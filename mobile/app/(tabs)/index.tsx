@@ -6,19 +6,21 @@ import {
   StyleSheet,
   Text,
   View,
+  SafeAreaView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { supabase } from '@/lib/supabase';
-import type { FoodItem, MealEstimate, MealTotals, MealEntry, RecentFood } from '@/lib/types';
+import type { FoodItem, MealEstimate, MealTotals, MealEntry, RecentFood, Profile } from '@/lib/types';
 
 import { DailySummaryCard } from '@/components/DailySummaryCard';
 import { MealSection } from '@/components/MealSection';
 import { AddFoodModal } from '@/components/AddFoodModal';
 import { ScanningLoader } from '@/components/ScanningLoader';
 import { MealReviewModal } from '@/components/MealReviewModal';
+import { OnboardingModal } from '@/components/OnboardingModal';
 
 const MEAL_TYPES = [
   { title: 'Breakfast', icon: 'sunny-outline' as const, color: '#F59E0B' },
@@ -30,6 +32,7 @@ const MEAL_TYPES = [
 export default function HomeScreen() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
+  const textPrimary = isDark ? '#F8FAFC' : '#0F172A';
 
   const [userName, setUserName] = useState<string>('');
   const [userEmail, setUserEmail] = useState<string>('');
@@ -38,9 +41,11 @@ export default function HomeScreen() {
   const [dailySummary, setDailySummary] = useState({ calories: 0, protein: 0, carbs: 0, fat: 0 });
   const [todaysEntries, setTodaysEntries] = useState<MealEntry[]>([]);
   const [recentFoods, setRecentFoods] = useState<RecentFood[]>([]);
+  const [profile, setProfile] = useState<Profile | null>(null);
 
   // UI Flow State
-  const [activeMealType, setActiveMealType] = useState('Breakfast');
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [activeMealType, setActiveMealType] = useState<string>('');
   const [addModalVisible, setAddModalVisible] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   
@@ -103,6 +108,28 @@ export default function HomeScreen() {
         setUserEmail(user.email || '');
         setUserId(user.id);
         fetchDashboardData(user.id);
+
+        // Fetch or create profile
+        let { data: profileData } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single();
+          
+        if (!profileData) {
+          const { data: newProfile } = await supabase
+            .from('profiles')
+            .insert({ id: user.id })
+            .select()
+            .single();
+          profileData = newProfile;
+        }
+        
+        setProfile(profileData as Profile);
+        
+        if (profileData && !profileData.target_calories) {
+          setShowOnboarding(true);
+        }
       }
     };
     init();
@@ -111,6 +138,37 @@ export default function HomeScreen() {
   const handleSignOut = async () => {
     const { error } = await supabase.auth.signOut();
     if (error) Alert.alert('Sign Out Error', error.message);
+  };
+
+  const handleSaveProfile = async (profileData: Partial<Profile>) => {
+    if (!userId) return;
+    const { data, error } = await supabase
+      .from('profiles')
+      .update(profileData)
+      .eq('id', userId)
+      .select()
+      .single();
+      
+    if (error) {
+      Alert.alert('Error saving profile', error.message);
+      return;
+    }
+    
+    setProfile(data as Profile);
+    setShowOnboarding(false);
+  };
+
+  const handleSkipOnboarding = async () => {
+    if (!userId) return;
+    const defaultProfile = {
+      goal: 'Just track my food',
+      target_calories: 2000,
+      target_protein: 150,
+      target_carbs: 200,
+      target_fat: 65,
+    };
+    await handleSaveProfile(defaultProfile);
+    Alert.alert('Targets Set', 'We assigned default targets. You can edit them anytime in your profile.');
   };
 
   const openAddFood = (mealType: string) => {
@@ -353,18 +411,25 @@ export default function HomeScreen() {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: isDark ? '#0F172A' : '#F8FAFC' }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#0F172A' : '#F8FAFC' }]}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
       
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <View>
             <Text style={[styles.greeting, { color: isDark ? '#94A3B8' : '#64748B' }]}>{greeting()} 👋</Text>
-            <Text style={[styles.name, { color: isDark ? '#F8FAFC' : '#0F172A' }]}>{userName}</Text>
+            <Text style={[styles.name, { color: textPrimary }]}>{userName}</Text>
           </View>
           <Pressable style={[styles.profileButton, { backgroundColor: isDark ? '#1E293B' : '#FFFFFF' }]} onPress={handleSignOut}>
             <Ionicons name="log-out-outline" size={22} color={isDark ? '#94A3B8' : '#64748B'} />
           </Pressable>
+        </View>
+        
+        <View style={styles.headerRow}>
+          <Text style={[styles.dateText, { color: textPrimary }]}>Today, {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</Text>
+          <View style={styles.headerIcons}>
+            <Ionicons name="calendar-outline" size={24} color={textPrimary} />
+          </View>
         </View>
 
         <DailySummaryCard
@@ -372,6 +437,10 @@ export default function HomeScreen() {
           protein={dailySummary.protein}
           carbs={dailySummary.carbs}
           fat={dailySummary.fat}
+          targetCalories={profile?.target_calories}
+          targetProtein={profile?.target_protein}
+          targetCarbs={profile?.target_carbs}
+          targetFat={profile?.target_fat}
         />
 
         {MEAL_TYPES.map((meal) => (
@@ -408,12 +477,22 @@ export default function HomeScreen() {
         visible={reviewVisible}
         mealType={activeMealType}
         estimate={estimate}
-        onClose={() => { setReviewVisible(false); setEditingEntry(null); }}
+        editingEntry={editingEntry}
         onSave={handleSaveMeal}
+        onCancel={() => {
+          setReviewVisible(false);
+          setEditingEntry(null);
+          setEstimate(null);
+        }}
         isSaving={isSaving}
-        isEditMode={!!editingEntry}
       />
-    </View>
+      
+      <OnboardingModal
+        visible={showOnboarding}
+        onSave={handleSaveProfile}
+        onSkip={handleSkipOnboarding}
+      />
+    </SafeAreaView>
   );
 }
 
@@ -431,6 +510,20 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 28,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  dateText: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  headerIcons: {
+    flexDirection: 'row',
+    gap: 12,
   },
   greeting: {
     fontSize: 14,

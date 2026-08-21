@@ -6,9 +6,20 @@ interface DailySummaryProps {
   protein: number;
   carbs: number;
   fat: number;
+  targetCalories?: number | null;
+  targetProtein?: number | null;
+  targetCarbs?: number | null;
+  targetFat?: number | null;
 }
 
-export function DailySummaryCard({ calories, protein, carbs, fat }: DailySummaryProps) {
+export function DailySummaryCard({ 
+  calories, protein, carbs, fat, 
+  targetCalories, targetProtein, targetCarbs, targetFat 
+}: DailySummaryProps) {
+  const getPercent = (current: number, target?: number | null, fallbackMax: number = 100) => {
+    const max = (target && target > 0) ? target : fallbackMax;
+    return Math.min(100, (current / max) * 100);
+  };
   return (
     <View style={[styles.summaryCard, { backgroundColor: '#6366F1' }]}>
       <View style={styles.summaryHeader}>
@@ -18,36 +29,50 @@ export function DailySummaryCard({ calories, protein, carbs, fat }: DailySummary
         </View>
       </View>
 
+      <View style={styles.caloriesContainer}>
+        <View style={styles.caloriesHeader}>
+          <Text style={styles.caloriesLabel}>Calories</Text>
+          <Text style={styles.caloriesValue}>
+            {Math.round(calories)}
+            {targetCalories ? <Text style={styles.caloriesTargetText}> / {Math.round(targetCalories)} kcal</Text> : <Text style={styles.caloriesTargetText}> kcal</Text>}
+          </Text>
+        </View>
+        <View style={[styles.macroBar, { width: '100%', height: 8, backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+          <View style={[styles.macroBarFill, { width: `${getPercent(calories, targetCalories, 2000)}%`, backgroundColor: '#FCD34D' }]} />
+        </View>
+      </View>
+
       <View style={styles.macroRow}>
         <View style={styles.macroItem}>
-          <Text style={styles.macroValue}>{Math.round(calories)}</Text>
-          <Text style={styles.macroLabel}>Calories</Text>
-          <View style={[styles.macroBar, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-            <View style={[styles.macroBarFill, { width: `${Math.min(100, (calories / 2000) * 100)}%`, backgroundColor: '#FCD34D' }]} />
-          </View>
-        </View>
-        <View style={styles.macroDivider} />
-        <View style={styles.macroItem}>
-          <Text style={styles.macroValue}>{Math.round(protein)}g</Text>
+          <Text style={styles.macroValue}>
+            {Math.round(protein)}
+            {targetProtein ? <Text style={styles.macroTargetText}>/{Math.round(targetProtein)}</Text> : null}g
+          </Text>
           <Text style={styles.macroLabel}>Protein</Text>
           <View style={[styles.macroBar, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-            <View style={[styles.macroBarFill, { width: `${Math.min(100, (protein / 150) * 100)}%`, backgroundColor: '#34D399' }]} />
+            <View style={[styles.macroBarFill, { width: `${getPercent(protein, targetProtein, 150)}%`, backgroundColor: '#34D399' }]} />
           </View>
         </View>
         <View style={styles.macroDivider} />
         <View style={styles.macroItem}>
-          <Text style={styles.macroValue}>{Math.round(carbs)}g</Text>
+          <Text style={styles.macroValue}>
+            {Math.round(carbs)}
+            {targetCarbs ? <Text style={styles.macroTargetText}>/{Math.round(targetCarbs)}</Text> : null}g
+          </Text>
           <Text style={styles.macroLabel}>Carbs</Text>
           <View style={[styles.macroBar, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-            <View style={[styles.macroBarFill, { width: `${Math.min(100, (carbs / 250) * 100)}%`, backgroundColor: '#60A5FA' }]} />
+            <View style={[styles.macroBarFill, { width: `${getPercent(carbs, targetCarbs, 250)}%`, backgroundColor: '#60A5FA' }]} />
           </View>
         </View>
         <View style={styles.macroDivider} />
         <View style={styles.macroItem}>
-          <Text style={styles.macroValue}>{Math.round(fat)}g</Text>
+          <Text style={styles.macroValue}>
+            {Math.round(fat)}
+            {targetFat ? <Text style={styles.macroTargetText}>/{Math.round(targetFat)}</Text> : null}g
+          </Text>
           <Text style={styles.macroLabel}>Fat</Text>
           <View style={[styles.macroBar, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-            <View style={[styles.macroBarFill, { width: `${Math.min(100, (fat / 70) * 100)}%`, backgroundColor: '#FB923C' }]} />
+            <View style={[styles.macroBarFill, { width: `${getPercent(fat, targetFat, 70)}%`, backgroundColor: '#FB923C' }]} />
           </View>
         </View>
       </View>
@@ -88,6 +113,32 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#FFFFFF',
   },
+  caloriesContainer: {
+    marginBottom: 24,
+  },
+  caloriesHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginBottom: 6,
+  },
+  caloriesLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.9)',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  caloriesValue: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  caloriesTargetText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.7)',
+  },
   macroRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -97,10 +148,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   macroValue: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '800',
     color: '#FFFFFF',
     marginBottom: 2,
+    textAlign: 'center',
+  },
+  macroTargetText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.7)',
   },
   macroLabel: {
     fontSize: 11,
