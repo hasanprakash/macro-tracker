@@ -12,7 +12,7 @@ import { StatusBar } from 'expo-status-bar';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { supabase } from '@/lib/supabase';
-import type { FoodItem, MealEstimate, MealTotals, FoodEntry, RecentFood } from '@/lib/types';
+import type { FoodItem, MealEstimate, MealTotals, MealEntry, RecentFood } from '@/lib/types';
 
 import { DailySummaryCard } from '@/components/DailySummaryCard';
 import { MealSection } from '@/components/MealSection';
@@ -36,7 +36,7 @@ export default function HomeScreen() {
   const [userId, setUserId] = useState<string>('');
 
   const [dailySummary, setDailySummary] = useState({ calories: 0, protein: 0, carbs: 0, fat: 0 });
-  const [todaysEntries, setTodaysEntries] = useState<FoodEntry[]>([]);
+  const [todaysEntries, setTodaysEntries] = useState<MealEntry[]>([]);
   const [recentFoods, setRecentFoods] = useState<RecentFood[]>([]);
 
   // UI Flow State
@@ -48,6 +48,7 @@ export default function HomeScreen() {
   const [estimate, setEstimate] = useState<MealEstimate | null>(null);
   const [reviewVisible, setReviewVisible] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<MealEntry | null>(null);
 
   const fetchDashboardData = useCallback(async (uid: string) => {
     const today = new Date().toISOString().split('T')[0];
@@ -69,16 +70,16 @@ export default function HomeScreen() {
       });
     }
 
-    // 2. Fetch today's food entries
+    // 2. Fetch today's meal entries with foods
     const { data: entriesData } = await supabase
-      .from('food_entries')
-      .select('*')
+      .from('meal_entries')
+      .select('*, meal_food(*)')
       .eq('user_id', uid)
       .gte('created_at', `${today}T00:00:00.000Z`)
       .order('created_at', { ascending: true });
 
     if (entriesData) {
-      setTodaysEntries(entriesData as FoodEntry[]);
+      setTodaysEntries(entriesData as MealEntry[]);
     }
 
     // 3. Fetch recent foods (limit 10)
@@ -142,26 +143,114 @@ export default function HomeScreen() {
   const handleSaveMeal = async (mealName: string, foods: FoodItem[], totals: MealTotals) => {
     setIsSaving(true);
     try {
-      const { data, error } = await supabase.functions.invoke('log-meal', {
+      if (editingEntry) {
+        // Edit mode: if no foods remain, just delete the entry
+        if (foods.length === 0) {
+          await handleDeleteEntry(editingEntry);
+          setReviewVisible(false);
+          setEstimate(null);
+          setEditingEntry(null);
+          return;
+        }
+        // Otherwise: delete old entry + re-insert via log-meal
+        const { error: delError } = await supabase.rpc('delete_meal_entry', {
+          p_meal_id: editingEntry.id,
+        });
+        if (delError) throw delError;
+      }
+
+      const { error } = await supabase.functions.invoke('log-meal', {
         body: {
           meal_type: activeMealType,
           meal_name: mealName,
           foods: foods,
           totals: totals,
-          // image_base64 would go here if we were passing the image forward
         }
       });
-      
+
       if (error) throw error;
-      
+
       setReviewVisible(false);
       setEstimate(null);
+      setEditingEntry(null);
       if (userId) fetchDashboardData(userId);
     } catch (err: any) {
-      Alert.alert('Save Failed', err.message || 'Could not save meal.');
+      Alert.alert(
+        editingEntry ? 'Update Failed' : 'Save Failed',
+        err.message || 'Could not save meal.',
+      );
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleDeleteEntry = async (entry: MealEntry) => {
+    // 1. Optimistic local state update for snappy UI
+    setTodaysEntries((prev) => prev.filter(e => e.id !== entry.id));
+    setDailySummary((prev) => ({
+      calories: Math.max(0, prev.calories - (entry.calories || 0)),
+      protein: Math.max(0, prev.protein - (entry.protein || 0)),
+      carbs: Math.max(0, prev.carbs - (entry.carbs || 0)),
+      fat: Math.max(0, prev.fat - (entry.fat || 0)),
+    }));
+
+    try {
+      // 2. Atomic delete & summary recalculation via Supabase RPC
+      const { error } = await supabase.rpc('delete_meal_entry', {
+        p_meal_id: entry.id,
+      });
+
+      if (error) throw error;
+    } catch (err: any) {
+      Alert.alert('Delete Failed', err.message || 'Could not delete entry.');
+      // Re-fetch to rollback/sync local state if RPC failed
+      if (userId) fetchDashboardData(userId);
+    }
+  };
+
+  /** Opens the review modal pre-populated with the entry's food breakdown. */
+  const handleEditEntry = (entry: MealEntry) => {
+    // Restore the per-food breakdown from the relational table or fallback to raw_input
+    let foods: FoodItem[] = [];
+    
+    if (entry.meal_food && entry.meal_food.length > 0) {
+      foods = entry.meal_food.map(f => ({
+        name: f.name,
+        quantity: f.quantity,
+        unit: f.unit,
+        calories: f.calories,
+        protein_g: f.protein_g,
+        carbs_g: f.carbs_g,
+        fat_g: f.fat_g,
+      }));
+    } else if (entry.raw_input?.foods && entry.raw_input.foods.length > 0) {
+      foods = entry.raw_input.foods;
+    } else {
+      // Fallback: treat the whole entry as one food item
+      foods = [{
+        name: entry.meal_name,
+        quantity: 1,
+        unit: 'serving',
+        calories: entry.calories,
+        protein_g: entry.protein,
+        carbs_g: entry.carbs,
+        fat_g: entry.fat,
+      }];
+    }
+    setEditingEntry(entry);
+    setActiveMealType(entry.meal_type);
+    setEstimate({
+      meal_name: entry.meal_name,
+      foods,
+      totals: {
+        calories: entry.calories,
+        protein_g: entry.protein,
+        carbs_g: entry.carbs,
+        fat_g: entry.fat,
+      },
+      confidence: 1.0,
+    });
+    setReviewVisible(true);
   };
 
   const handleQuickAdd = async (mealName: string, foods: FoodItem[], totals: MealTotals) => {
@@ -183,8 +272,8 @@ export default function HomeScreen() {
       const yesterdayStr = yesterday.toISOString().split('T')[0];
 
       const { data: yesterdayEntries } = await supabase
-        .from('food_entries')
-        .select('*')
+        .from('meal_entries')
+        .select('*, meal_food(*)')
         .eq('user_id', userId)
         .eq('meal_type', activeMealType)
         .gte('created_at', `${yesterdayStr}T00:00:00.000Z`)
@@ -206,11 +295,23 @@ export default function HomeScreen() {
         combinedTotals.fat_g += Number(entry.fat);
         
         let parsedFoods: FoodItem[] = [];
-        try {
-          if (entry.raw_input && typeof entry.raw_input === 'object' && 'foods' in (entry.raw_input as any)) {
-            parsedFoods = (entry.raw_input as any).foods;
-          }
-        } catch(e) {}
+        if (entry.meal_food && entry.meal_food.length > 0) {
+          parsedFoods = entry.meal_food.map((f: any) => ({
+            name: f.name,
+            quantity: f.quantity,
+            unit: f.unit,
+            calories: f.calories,
+            protein_g: f.protein_g,
+            carbs_g: f.carbs_g,
+            fat_g: f.fat_g,
+          }));
+        } else {
+          try {
+            if (entry.raw_input && typeof entry.raw_input === 'object' && 'foods' in (entry.raw_input as any)) {
+              parsedFoods = (entry.raw_input as any).foods;
+            }
+          } catch(e) {}
+        }
         
         if (parsedFoods.length > 0) {
           combinedFoods.push(...parsedFoods);
@@ -281,6 +382,8 @@ export default function HomeScreen() {
             color={meal.color}
             entries={todaysEntries.filter(e => e.meal_type === meal.title)}
             onAddPress={() => openAddFood(meal.title)}
+            onDeleteEntry={handleDeleteEntry}
+            onEditEntry={handleEditEntry}
           />
         ))}
 
@@ -305,9 +408,10 @@ export default function HomeScreen() {
         visible={reviewVisible}
         mealType={activeMealType}
         estimate={estimate}
-        onClose={() => setReviewVisible(false)}
+        onClose={() => { setReviewVisible(false); setEditingEntry(null); }}
         onSave={handleSaveMeal}
         isSaving={isSaving}
+        isEditMode={!!editingEntry}
       />
     </View>
   );

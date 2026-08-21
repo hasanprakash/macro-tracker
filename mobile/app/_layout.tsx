@@ -19,6 +19,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
@@ -138,29 +139,32 @@ export default function RootLayout() {
   };
 
 
+  const useLocalSupabase = process.env.EXPO_PUBLIC_USE_LOCAL_SUPABASE === 'true';
+  console.log("useLocalSupabase:", useLocalSupabase);
+  // console.log("session:", session);
+
   // Loading state while verifying auth session
   if (loading) {
     const isDark = colorScheme === "dark";
     return (
-      <View
-        style={[
-          styles.loadingContainer,
-          { backgroundColor: isDark ? "#0F172A" : "#F8FAFC" },
-        ]}
-      >
-        <ActivityIndicator size="large" color="#6366F1" />
-      </View>
+      <GestureHandlerRootView style={styles.root}>
+        <View
+          style={[
+            styles.loadingContainer,
+            { backgroundColor: isDark ? "#0F172A" : "#F8FAFC" },
+          ]}
+        >
+          <ActivityIndicator size="large" color="#6366F1" />
+        </View>
+      </GestureHandlerRootView>
     );
   }
 
   // 3. If NO active session, render Login Screen
-  const useLocalSupabase = process.env.EXPO_PUBLIC_USE_LOCAL_SUPABASE === 'true';
-  console.log("useLocalSupabase:", useLocalSupabase);
-  // console.log("session:", session);
-  
   if (!session && !useLocalSupabase) {
     const isDark = colorScheme === "dark";
     return (
+      <GestureHandlerRootView style={styles.root}>
       <View
         style={[
           styles.loginContainer,
@@ -274,25 +278,31 @@ export default function RootLayout() {
           Secure authentication powered by Supabase & Google
         </Text>
       </View>
+      </GestureHandlerRootView>
     );
   }
 
   // 4. If IS active session, render main authenticated application interface
   return (
-    <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen
-          name="modal"
-          options={{ presentation: "modal", title: "Modal" }}
-        />
-      </Stack>
-      <StatusBar style="auto" />
-    </ThemeProvider>
+    <GestureHandlerRootView style={styles.root}>
+      <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
+        <Stack>
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen
+            name="modal"
+            options={{ presentation: "modal", title: "Modal" }}
+          />
+        </Stack>
+        <StatusBar style="auto" />
+      </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: "center",

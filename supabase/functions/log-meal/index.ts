@@ -79,111 +79,26 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ── Insert into food_entries ──────────────────────────────────────
-    const { data: entryData, error: entryError } = await supabase
-      .from('food_entries')
-      .insert({
-        user_id: user.id,
-        meal_type: meal_type,
-        meal_name: meal_name,
-        calories: totals.calories,
-        protein: totals.protein_g,
-        carbs: totals.carbs_g,
-        fat: totals.fat_g,
-        fiber: 0,
-        sugar: 0,
-        sodium: 0,
-        image_path: imagePath,
-        raw_input: JSON.stringify({ foods }),
-        ai_provider: 'google',
-        ai_model: 'gemini-3.5-flash',
-        ai_response_json: { meal_name, foods, totals },
-      })
-      .select()
-      .single();
+    // ── Call Transactional RPC ────────────────────────────────────────
+    const { data: rpcData, error: rpcError } = await supabase.rpc('insert_meal_transaction', {
+      p_meal_type: meal_type,
+      p_meal_name: meal_name,
+      p_calories: totals.calories,
+      p_protein: totals.protein_g,
+      p_carbs: totals.carbs_g,
+      p_fat: totals.fat_g,
+      p_image_path: imagePath,
+      p_raw_input: { foods },
+      p_ai_response_json: { meal_name, foods, totals },
+      p_foods: foods
+    });
 
-    if (entryError) {
-      console.error("DB Insert Error (food_entries):", entryError);
-      throw new Error("Failed to save meal entry");
+    if (rpcError) {
+      console.error("DB RPC Error (insert_meal_transaction):", rpcError);
+      throw new Error("Failed to save meal entry completely");
     }
 
-    // ── Upsert daily_summaries ───────────────────────────────────────
-    const today = new Date().toISOString().split('T')[0];
-
-    const { data: currentSummary } = await supabase
-      .from('daily_summaries')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('summary_date', today)
-      .single();
-
-    if (currentSummary) {
-      await supabase
-        .from('daily_summaries')
-        .update({
-          total_calories: (currentSummary.total_calories || 0) + totals.calories,
-          total_protein: (currentSummary.total_protein || 0) + totals.protein_g,
-          total_carbs: (currentSummary.total_carbs || 0) + totals.carbs_g,
-          total_fat: (currentSummary.total_fat || 0) + totals.fat_g,
-          meal_count: (currentSummary.meal_count || 0) + 1,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', currentSummary.id);
-    } else {
-      await supabase
-        .from('daily_summaries')
-        .insert({
-          user_id: user.id,
-          summary_date: today,
-          total_calories: totals.calories,
-          total_protein: totals.protein_g,
-          total_carbs: totals.carbs_g,
-          total_fat: totals.fat_g,
-          total_fiber: 0,
-          meal_count: 1,
-        });
-    }
-
-    // ── Upsert recent_foods (case-insensitive meal_name match) ───────
-    // Check if a recent food with the same name already exists for this user.
-    // Uses case-insensitive comparison via ilike.
-    const { data: existingRecent } = await supabase
-      .from('recent_foods')
-      .select('*')
-      .eq('user_id', user.id)
-      .ilike('meal_name', meal_name)
-      .single();
-
-    if (existingRecent) {
-      // Update existing: bump count and refresh data
-      await supabase
-        .from('recent_foods')
-        .update({
-          foods: foods,
-          total_calories: totals.calories,
-          total_protein: totals.protein_g,
-          total_carbs: totals.carbs_g,
-          total_fat: totals.fat_g,
-          used_count: (existingRecent.used_count || 0) + 1,
-          last_used_at: new Date().toISOString(),
-        })
-        .eq('id', existingRecent.id);
-    } else {
-      // Insert new recent food
-      await supabase
-        .from('recent_foods')
-        .insert({
-          user_id: user.id,
-          meal_name: meal_name,
-          foods: foods,
-          total_calories: totals.calories,
-          total_protein: totals.protein_g,
-          total_carbs: totals.carbs_g,
-          total_fat: totals.fat_g,
-          used_count: 1,
-          last_used_at: new Date().toISOString(),
-        });
-    }
+    const entryData = rpcData.entry;
 
     console.log("log-meal: Saved", meal_name, "for user", user.id);
 

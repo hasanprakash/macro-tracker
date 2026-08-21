@@ -29,8 +29,8 @@ export interface MealEstimate {
   confidence: number;
 }
 
-/** A food entry row from the food_entries table */
-export interface FoodEntry {
+/** A food entry row from the meal_entries table */
+export interface MealEntry {
   id: string;
   user_id: string;
   meal_type: string;
@@ -43,7 +43,22 @@ export interface FoodEntry {
   sugar: number;
   sodium: number;
   image_path: string | null;
+  raw_input?: { foods?: FoodItem[] } | null;
   created_at: string;
+  meal_food?: MealFood[];
+}
+
+/** A food item row from the meal_food table */
+export interface MealFood {
+  id: string;
+  meal_id: string;
+  name: string;
+  quantity: number;
+  unit: string;
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
 }
 
 /** A recent food row from the recent_foods table */

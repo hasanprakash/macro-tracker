@@ -1,18 +1,21 @@
 import React from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { View, Text, StyleSheet, Pressable, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Swipeable from 'react-native-gesture-handler/Swipeable';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import type { FoodEntry } from '@/lib/types';
+import type { MealEntry } from '@/lib/types';
 
 interface MealSectionProps {
   title: string;
   icon: keyof typeof Ionicons.glyphMap;
   color: string;
-  entries: FoodEntry[];
+  entries: MealEntry[];
   onAddPress: () => void;
+  onDeleteEntry: (entry: MealEntry) => void;
+  onEditEntry: (entry: MealEntry) => void;
 }
 
-export function MealSection({ title, icon, color, entries, onAddPress }: MealSectionProps) {
+export function MealSection({ title, icon, color, entries, onAddPress, onDeleteEntry, onEditEntry }: MealSectionProps) {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
 
@@ -55,17 +58,36 @@ export function MealSection({ title, icon, color, entries, onAddPress }: MealSec
       {entries.length > 0 ? (
         <View style={styles.entriesList}>
           {entries.map((entry) => (
-            <View key={entry.id} style={[styles.entryRow, { backgroundColor: entryBg }]}>
-              <View style={styles.entryInfo}>
-                <Text style={[styles.entryName, { color: textPrimary }]}>{entry.meal_name}</Text>
-                <Text style={[styles.entryMacros, { color: textSecondary }]}>
-                  P: {Math.round(entry.protein)}g · C: {Math.round(entry.carbs)}g · F: {Math.round(entry.fat)}g
-                </Text>
-              </View>
-              <Text style={[styles.entryCal, { color: textPrimary }]}>
-                {Math.round(entry.calories)} kcal
-              </Text>
-            </View>
+            <Swipeable
+              key={entry.id}
+              renderRightActions={() => (
+                <Pressable
+                  style={styles.deleteButton}
+                  onPress={() => onDeleteEntry(entry)}
+                >
+                  <Ionicons name="trash-outline" size={20} color="#FFFFFF" />
+                </Pressable>
+              )}
+            >
+              <TouchableOpacity
+                style={[styles.entryRow, { backgroundColor: entryBg }]}
+                onPress={() => onEditEntry(entry)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.entryInfo}>
+                  <Text style={[styles.entryName, { color: textPrimary }]}>{entry.meal_name}</Text>
+                  <Text style={[styles.entryMacros, { color: textSecondary }]}>
+                    P: {Math.round(entry.protein)}g · C: {Math.round(entry.carbs)}g · F: {Math.round(entry.fat)}g
+                  </Text>
+                </View>
+                <View style={styles.entryRowRight}>
+                  <Text style={[styles.entryCal, { color: textPrimary }]}>
+                    {Math.round(entry.calories)} kcal
+                  </Text>
+                  <Ionicons name="chevron-forward" size={14} color={textSecondary} style={{ marginLeft: 4 }} />
+                </View>
+              </TouchableOpacity>
+            </Swipeable>
           ))}
         </View>
       ) : (
@@ -139,10 +161,22 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 2,
   },
+  entryRowRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   entryCal: {
     fontSize: 15,
     fontWeight: '700',
     marginLeft: 12,
+  },
+  deleteButton: {
+    backgroundColor: '#EF4444',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 60,
+    borderRadius: 12,
+    marginLeft: 8,
   },
   emptyText: {
     marginTop: 12,

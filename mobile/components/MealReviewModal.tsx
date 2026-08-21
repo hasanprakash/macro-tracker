@@ -11,6 +11,8 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Swipeable from 'react-native-gesture-handler/Swipeable';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import type { FoodItem, MealEstimate, MealTotals } from '@/lib/types';
 
@@ -21,6 +23,7 @@ interface MealReviewModalProps {
   onClose: () => void;
   onSave: (mealName: string, foods: FoodItem[], totals: MealTotals) => void;
   isSaving: boolean;
+  isEditMode?: boolean;
 }
 
 /**
@@ -62,6 +65,7 @@ export function MealReviewModal({
   onClose,
   onSave,
   isSaving,
+  isEditMode = false,
 }: MealReviewModalProps) {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
@@ -96,6 +100,11 @@ export function MealReviewModal({
     [originalFoods]
   );
 
+  const handleDeleteItem = useCallback((indexToRemove: number) => {
+    setCurrentFoods((prev) => prev.filter((_, idx) => idx !== indexToRemove));
+    setOriginalFoods((prev) => prev.filter((_, idx) => idx !== indexToRemove));
+  }, []);
+
   const handleSave = () => {
     onSave(mealName, currentFoods, totals);
   };
@@ -112,7 +121,7 @@ export function MealReviewModal({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.overlay}
       >
         <View style={[styles.modalContent, { backgroundColor: cardBg }]}>
@@ -136,42 +145,65 @@ export function MealReviewModal({
           </View>
 
           {/* Foods Table */}
-          <ScrollView style={styles.foodsList} showsVerticalScrollIndicator={false}>
-            {/* Table Header */}
-            <View style={styles.tableHeader}>
-              <Text style={[styles.tableHeaderText, { color: textSecondary, flex: 2 }]}>Food</Text>
-              <Text style={[styles.tableHeaderText, { color: textSecondary, flex: 1.2, textAlign: 'center' }]}>Amount</Text>
-              <Text style={[styles.tableHeaderText, { color: textSecondary, flex: 1, textAlign: 'right' }]}>Calories</Text>
-            </View>
+          <GestureHandlerRootView style={{ flex: 0 }}>
+            <ScrollView style={styles.foodsList} showsVerticalScrollIndicator={false}>
+              {/* Table Header */}
+              <View style={styles.tableHeader}>
+                <Text style={[styles.tableHeaderText, { color: textSecondary, flex: 2 }]}>Food</Text>
+                <Text style={[styles.tableHeaderText, { color: textSecondary, flex: 1.2, textAlign: 'center' }]}>Amount</Text>
+                <Text style={[styles.tableHeaderText, { color: textSecondary, flex: 1, textAlign: 'right' }]}>Calories</Text>
+              </View>
 
-            {/* Food Rows */}
-            {currentFoods.map((food, index) => (
-              <View key={index} style={[styles.foodRow, { backgroundColor: rowBg }]}>
-                <View style={{ flex: 2 }}>
-                  <Text style={[styles.foodName, { color: textPrimary }]}>{food.name}</Text>
-                  <Text style={[styles.foodMacros, { color: textSecondary }]}>
-                    P: {food.protein_g}g · C: {food.carbs_g}g · F: {food.fat_g}g
+              {/* Food Rows */}
+              {currentFoods.length === 0 ? (
+                <View style={styles.emptyFoodsContainer}>
+                  <Ionicons name="trash-outline" size={32} color={textSecondary} />
+                  <Text style={[styles.emptyFoodsText, { color: textSecondary }]}>
+                    All items removed.{isEditMode ? ' Save to delete this meal.' : ''}
                   </Text>
                 </View>
-                <View style={[styles.quantityCell, { flex: 1.2 }]}>
-                  <TextInput
-                    style={[
-                      styles.quantityInput,
-                      { backgroundColor: inputBg, color: textPrimary, borderColor },
-                    ]}
-                    value={food.quantity.toString()}
-                    onChangeText={(v) => handleQuantityChange(index, v)}
-                    keyboardType="numeric"
-                    selectTextOnFocus
-                  />
-                  <Text style={[styles.unitText, { color: textSecondary }]}>{food.unit}</Text>
-                </View>
-                <Text style={[styles.calorieText, { color: textPrimary, flex: 1 }]}>
-                  {food.calories} kcal
-                </Text>
-              </View>
-            ))}
-          </ScrollView>
+              ) : (
+                currentFoods.map((food, index) => (
+                  <Swipeable
+                    key={index}
+                    renderRightActions={() => (
+                      <Pressable
+                        style={styles.deleteButton}
+                        onPress={() => handleDeleteItem(index)}
+                      >
+                        <Ionicons name="trash-outline" size={20} color="#FFFFFF" />
+                      </Pressable>
+                    )}
+                  >
+                    <View style={[styles.foodRow, { backgroundColor: rowBg }]}>
+                      <View style={{ flex: 2 }}>
+                        <Text style={[styles.foodName, { color: textPrimary }]}>{food.name}</Text>
+                        <Text style={[styles.foodMacros, { color: textSecondary }]}>
+                          P: {food.protein_g}g · C: {food.carbs_g}g · F: {food.fat_g}g
+                        </Text>
+                      </View>
+                      <View style={[styles.quantityCell, { flex: 1.2 }]}>
+                        <TextInput
+                          style={[
+                            styles.quantityInput,
+                            { backgroundColor: inputBg, color: textPrimary, borderColor },
+                          ]}
+                          value={food.quantity.toString()}
+                          onChangeText={(v) => handleQuantityChange(index, v)}
+                          keyboardType="numeric"
+                          selectTextOnFocus
+                        />
+                        <Text style={[styles.unitText, { color: textSecondary }]}>{food.unit}</Text>
+                      </View>
+                      <Text style={[styles.calorieText, { color: textPrimary, flex: 1 }]}>
+                        {food.calories} kcal
+                      </Text>
+                    </View>
+                  </Swipeable>
+                ))
+              )}
+            </ScrollView>
+          </GestureHandlerRootView>
 
           {/* Totals */}
           <View style={[styles.totalsContainer, { borderColor }]}>
@@ -205,6 +237,7 @@ export function MealReviewModal({
           <Pressable
             style={({ pressed }) => [
               styles.saveButton,
+              currentFoods.length === 0 && styles.deleteEntryButton,
               pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
               isSaving && styles.saveButtonDisabled,
             ]}
@@ -212,7 +245,13 @@ export function MealReviewModal({
             disabled={isSaving}
           >
             <Text style={styles.saveButtonText}>
-              {isSaving ? 'Saving...' : 'Save Meal'}
+              {isSaving
+                ? (currentFoods.length === 0 ? 'Deleting...' : 'Saving...')
+                : currentFoods.length === 0
+                  ? 'Delete Meal'
+                  : isEditMode
+                    ? 'Update Meal'
+                    : 'Save Meal'}
             </Text>
           </Pressable>
         </View>
@@ -313,6 +352,15 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'right',
   },
+  deleteButton: {
+    backgroundColor: '#EF4444',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 60,
+    borderRadius: 12,
+    marginBottom: 8,
+    marginLeft: 8,
+  },
   totalsContainer: {
     borderTopWidth: 1,
     paddingTop: 14,
@@ -354,6 +402,18 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     borderRadius: 14,
     alignItems: 'center',
+  },
+  emptyFoodsContainer: {
+    alignItems: 'center',
+    paddingVertical: 32,
+    gap: 12,
+  },
+  emptyFoodsText: {
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  deleteEntryButton: {
+    backgroundColor: '#EF4444',
   },
   saveButtonDisabled: {
     backgroundColor: '#A5B4FC',
