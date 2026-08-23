@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import type { RecentFood, FoodItem, MealTotals } from '@/lib/types';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 
 interface AddFoodModalProps {
   visible: boolean;
@@ -57,6 +58,23 @@ export function AddFoodModal({
     onClose();
   };
 
+  const processImage = async (uri: string) => {
+    try {
+      const manipResult = await ImageManipulator.manipulateAsync(
+        uri,
+        [{ resize: { width: 1024 } }],
+        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+      );
+      if (manipResult.base64) {
+        setImageBase64(manipResult.base64);
+        setImageUri(manipResult.uri);
+      }
+    } catch (error) {
+      console.error("Image processing error:", error);
+      alert("Failed to process image.");
+    }
+  };
+
   const handleScanPress = async () => {
     const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
     if (permissionResult.granted === false) {
@@ -64,12 +82,10 @@ export function AddFoodModal({
       return;
     }
     const pickerResult = await ImagePicker.launchCameraAsync({
-      base64: true,
-      quality: 0.5,
+      quality: 1, // Capture full quality, then compress specifically in ImageManipulator
     });
-    if (!pickerResult.canceled && pickerResult.assets[0].base64) {
-      setImageBase64(pickerResult.assets[0].base64);
-      setImageUri(pickerResult.assets[0].uri);
+    if (!pickerResult.canceled && pickerResult.assets[0].uri) {
+      await processImage(pickerResult.assets[0].uri);
       setMode('describe'); // Move to describe mode so they can add optional text or submit directly
     }
   };
@@ -81,12 +97,10 @@ export function AddFoodModal({
       return;
     }
     const pickerResult = await ImagePicker.launchImageLibraryAsync({
-      base64: true,
-      quality: 0.5,
+      quality: 1,
     });
-    if (!pickerResult.canceled && pickerResult.assets[0].base64) {
-      setImageBase64(pickerResult.assets[0].base64);
-      setImageUri(pickerResult.assets[0].uri);
+    if (!pickerResult.canceled && pickerResult.assets[0].uri) {
+      await processImage(pickerResult.assets[0].uri);
     }
   };
 

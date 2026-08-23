@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "300572c3-a36b-42e9-939a-c572b9fc0afe"
+      }
+    },
+    "android": {
+      "package": "com.hasanprakash.supabase"
+    }
+  }
+}

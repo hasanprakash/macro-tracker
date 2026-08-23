@@ -9,6 +9,7 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  PanResponder,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
@@ -118,13 +119,40 @@ export function MealReviewModal({
   const inputBg = isDark ? '#0F172A' : '#F8FAFC';
   const rowBg = isDark ? '#334155' : '#F1F5F9';
 
+  const panResponder = React.useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_, gestureState) => gestureState.dy > 10,
+        onPanResponderRelease: (_, gestureState) => {
+          if (gestureState.dy > 50) {
+            onClose();
+          }
+        },
+      }),
+    [onClose]
+  );
+
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal 
+      visible={visible} 
+      transparent={true} 
+      animationType="slide" 
+      presentationStyle={Platform.OS === 'ios' ? "pageSheet" : undefined}
+      onRequestClose={onClose}
+    >
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.overlay}
       >
+        {Platform.OS !== 'ios' && (
+          <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        )}
         <View style={[styles.modalContent, { backgroundColor: cardBg }]}>
+          {/* Handle bar */}
+          <View style={{ alignItems: 'center', paddingVertical: 16, marginTop: -24 }} {...panResponder.panHandlers}>
+            <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: borderColor }} />
+          </View>
           {/* Header */}
           <View style={styles.header}>
             <View>
@@ -133,8 +161,8 @@ export function MealReviewModal({
                 AI Confidence: {Math.round((estimate.confidence || 0.9) * 100)}%
               </Text>
             </View>
-            <Pressable onPress={onClose} disabled={isSaving}>
-              <Ionicons name="close" size={24} color={textSecondary} />
+            <Pressable onPress={onClose} disabled={isSaving} hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }} style={{ padding: 4 }}>
+              <Ionicons name="close" size={28} color={textSecondary} />
             </Pressable>
           </View>
 

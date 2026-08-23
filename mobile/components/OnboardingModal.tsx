@@ -9,6 +9,7 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -37,8 +38,12 @@ export function OnboardingModal({ visible, onSave, onSkip }: OnboardingModalProp
   const [goal, setGoal] = useState<'Lose weight' | 'Maintain weight' | 'Gain weight' | 'Just track my food' | null>(null);
   const [targetWeight, setTargetWeight] = useState(''); // kg
 
+
   // Calculated Targets State
   const [targetCalories, setTargetCalories] = useState('');
+  const [maintenanceCalories, setMaintenanceCalories] = useState('');
+  const [underEatingThreshold, setUnderEatingThreshold] = useState('');
+  const [targetSteps, setTargetSteps] = useState('');
   const [targetProtein, setTargetProtein] = useState('');
   const [targetCarbs, setTargetCarbs] = useState('');
   const [targetFat, setTargetFat] = useState('');
@@ -87,31 +92,41 @@ export function OnboardingModal({ visible, onSave, onSkip }: OnboardingModalProp
     let bmr = 10 * w + 6.25 * h - 5 * a;
     bmr += gender === 'Male' ? 5 : -161;
 
-    // 2. TDEE (Baseline sedentary multiplier)
-    let tdee = bmr * 1.2;
+    // 2. Activity Level Multiplier
+    let pal = 1.2;
+
+    let tdee = bmr * pal;
 
     // 3. Goal adjustments
     let calTarget = tdee;
-    if (goal === 'Lose weight') calTarget -= 200;
-    else if (goal === 'Gain weight') calTarget += 200;
+    if (goal === 'Lose weight') calTarget -= 450;
+    else if (goal === 'Gain weight') calTarget += 300;
 
-    // 4. Macros
-    // Protein: 1.8g per kg of body weight (use target weight if applicable, else current)
-    const activeWeight = (goal === 'Lose weight' || goal === 'Gain weight') && targetWeight 
-      ? parseFloat(targetWeight) 
-      : w;
+    // 4. Macros & Specific Logic
+    const bmi = w / ((h / 100) * (h / 100));
+    const activeWeight = (bmi >= 30 && goal === 'Lose weight') ? (targetWeight ? parseFloat(targetWeight) : w) : w;
+    const proteinMultiplier = (bmi >= 30 && goal === 'Lose weight') ? 1.5 : 1.8;
     
-    const pTarget = activeWeight * 1.8;
+    const pTarget = activeWeight * proteinMultiplier;
     const pCals = pTarget * 4;
 
-    // Fat: 30% of total calories
-    const fCals = calTarget * 0.30;
+    let fatPercent = 0.30;
+    if (goal === 'Lose weight') fatPercent = 0.20;
+    else if (goal === 'Maintain weight') fatPercent = 0.25;
+    
+    const fCals = calTarget * fatPercent;
     const fTarget = fCals / 9;
 
-    // Carbs: Remaining calories
     const cCals = calTarget - pCals - fCals;
     const cTarget = cCals / 4;
 
+    // 5. Steps
+    let steps = 5000;
+    
+    setMaintenanceCalories(Math.round(tdee).toString());
+    setUnderEatingThreshold(Math.round(bmr).toString());
+    setTargetSteps(steps.toString());
+    
     setTargetCalories(Math.round(calTarget).toString());
     setTargetProtein(Math.round(pTarget).toString());
     setTargetFat(Math.round(fTarget).toString());
@@ -127,6 +142,10 @@ export function OnboardingModal({ visible, onSave, onSkip }: OnboardingModalProp
       weight_kg: parseFloat(weight) || null,
       goal,
       target_weight_kg: targetWeight ? parseFloat(targetWeight) : null,
+      activity_level: 'Sedentary',
+      maintenance_calories: parseFloat(maintenanceCalories) || null,
+      under_eating_threshold: parseFloat(underEatingThreshold) || null,
+      target_steps: parseInt(targetSteps) || null,
       target_calories: parseFloat(targetCalories) || 2000,
       target_protein: parseFloat(targetProtein) || 150,
       target_carbs: parseFloat(targetCarbs) || 200,
@@ -138,6 +157,7 @@ export function OnboardingModal({ visible, onSave, onSkip }: OnboardingModalProp
   const canProceed = () => {
     if (step === 'age-gender') return age && gender;
     if (step === 'height-weight') return height && weight;
+
     if (step === 'goal') return goal;
     if (step === 'target-weight') {
       const current = parseFloat(weight);
@@ -235,6 +255,8 @@ export function OnboardingModal({ visible, onSave, onSkip }: OnboardingModalProp
       />
     </View>
   );
+
+
 
   const renderGoal = () => (
     <View style={styles.stepContainer}>
@@ -358,6 +380,7 @@ export function OnboardingModal({ visible, onSave, onSkip }: OnboardingModalProp
             {step === 'intro' && renderIntro()}
             {step === 'age-gender' && renderAgeGender()}
             {step === 'height-weight' && renderHeightWeight()}
+
             {step === 'goal' && renderGoal()}
             {step === 'target-weight' && renderTargetWeight()}
             {step === 'review' && renderReview()}

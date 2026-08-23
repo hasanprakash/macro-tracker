@@ -23,3 +23,15 @@ entrypoint = "./functions/log-meal/index.ts"
 
 [edge_runtime]
 enabled = true
+
+
+[functions.log-exercise]
+enabled = true
+verify_jwt = false
+import_map = "./functions/log-exercise/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/log-exercise/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/log-exercise/*.html" ]

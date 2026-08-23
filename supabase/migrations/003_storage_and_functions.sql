@@ -1,42 +1,17 @@
 -- =============================================================================
--- Migration 003: Relational Meals (Meal Entries -> Meal Food)
+-- 3. STORAGE
 -- =============================================================================
 
--- 1. Rename existing food_entries to meal_entries
-ALTER TABLE public.food_entries RENAME TO meal_entries;
-ALTER POLICY "Users can insert their own food entries" ON public.meal_entries RENAME TO "Users can insert their own meal entries";
+INSERT INTO storage.buckets (id, name, public) VALUES ('meal-images', 'meal-images', true) ON CONFLICT (id) DO NOTHING;
+CREATE POLICY "Public Access" ON storage.objects FOR SELECT USING (bucket_id = 'meal-images');
+CREATE POLICY "Authenticated users can upload meal images" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'meal-images' and auth.role() = 'authenticated');
 
--- 2. Add constraint to meal_type
-ALTER TABLE public.meal_entries
-  ADD CONSTRAINT meal_entries_meal_type_check 
-  CHECK (lower(meal_type) IN ('breakfast', 'lunch', 'dinner', 'snack', 'snacks', 'unknown'));
 
--- 3. Create the child table (meal_food)
-CREATE TABLE public.meal_food (
-  id uuid default gen_random_uuid() primary key,
-  user_id uuid references auth.users(id) on delete cascade not null,
-  meal_id uuid references public.meal_entries(id) on delete cascade not null,
-  name text not null,
-  quantity numeric not null,
-  unit text,
-  calories numeric not null default 0,
-  protein_g numeric not null default 0,
-  carbs_g numeric not null default 0,
-  fat_g numeric not null default 0,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
+-- =============================================================================
+-- 4. RPC FUNCTIONS
+-- =============================================================================
 
--- 4. RLS for meal_food
-ALTER TABLE public.meal_food ENABLE ROW LEVEL SECURITY;
-GRANT SELECT, INSERT, DELETE, UPDATE ON public.meal_food TO authenticated;
-
-CREATE POLICY "Users can manage their own meal_food"
-  ON public.meal_food FOR ALL TO authenticated
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
-
--- 5. RPC to delete meal entry (replacing the old one)
+-- RPC to delete meal entry (replaces old food_entry delete)
 CREATE OR REPLACE FUNCTION public.delete_meal_entry(p_meal_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -96,11 +71,9 @@ BEGIN
   );
 END;
 $$;
-
 GRANT EXECUTE ON FUNCTION public.delete_meal_entry(uuid) TO authenticated;
-DROP FUNCTION IF EXISTS public.delete_food_entry(uuid);
 
--- 6. RPC for transactional insert of Meal + Foods
+-- RPC for transactional insert of Meal + Foods
 CREATE OR REPLACE FUNCTION public.insert_meal_transaction(
   p_meal_type text,
   p_meal_name text,
@@ -222,5 +195,4 @@ BEGIN
   );
 END;
 $$;
-
 GRANT EXECUTE ON FUNCTION public.insert_meal_transaction(text, text, numeric, numeric, numeric, numeric, text, jsonb, jsonb, jsonb) TO authenticated;

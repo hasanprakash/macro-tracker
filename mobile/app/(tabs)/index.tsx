@@ -6,14 +6,14 @@ import {
   StyleSheet,
   Text,
   View,
-  SafeAreaView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { supabase } from '@/lib/supabase';
-import type { FoodItem, MealEstimate, MealTotals, MealEntry, RecentFood, Profile } from '@/lib/types';
+import type { FoodItem, MealEstimate, MealTotals, MealEntry, RecentFood, Profile, ExerciseEntry } from '@/lib/types';
 
 import { DailySummaryCard } from '@/components/DailySummaryCard';
 import { MealSection } from '@/components/MealSection';
@@ -21,6 +21,8 @@ import { AddFoodModal } from '@/components/AddFoodModal';
 import { ScanningLoader } from '@/components/ScanningLoader';
 import { MealReviewModal } from '@/components/MealReviewModal';
 import { OnboardingModal } from '@/components/OnboardingModal';
+import { AddExerciseModal } from '@/components/AddExerciseModal';
+import { ExerciseSection } from '@/components/ExerciseSection';
 
 const MEAL_TYPES = [
   { title: 'Breakfast', icon: 'sunny-outline' as const, color: '#F59E0B' },
@@ -42,12 +44,14 @@ export default function HomeScreen() {
   const [todaysEntries, setTodaysEntries] = useState<MealEntry[]>([]);
   const [recentFoods, setRecentFoods] = useState<RecentFood[]>([]);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [todaysExercises, setTodaysExercises] = useState<ExerciseEntry[]>([]);
 
   // UI Flow State
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [activeMealType, setActiveMealType] = useState<string>('');
   const [addModalVisible, setAddModalVisible] = useState(false);
-  const [isScanning, setIsScanning] = useState(false);
+  const [addExerciseVisible, setAddExerciseVisible] = useState(false);
+  const [scanningType, setScanningType] = useState<'meal' | 'exercise' | null>(null);
   
   // Review Modal State
   const [estimate, setEstimate] = useState<MealEstimate | null>(null);
@@ -97,6 +101,17 @@ export default function HomeScreen() {
 
     if (recentsData) {
       setRecentFoods(recentsData as RecentFood[]);
+    }
+
+    // 4. Fetch today's exercises
+    const { data: exercisesData } = await supabase
+      .from('exercises')
+      .select('*')
+      .eq('user_id', uid)
+      .eq('exercise_date', today);
+
+    if (exercisesData) {
+      setTodaysExercises(exercisesData as ExerciseEntry[]);
     }
   }, []);
 
@@ -162,13 +177,93 @@ export default function HomeScreen() {
     if (!userId) return;
     const defaultProfile = {
       goal: 'Just track my food',
+      activity_level: 'Sedentary',
+      maintenance_calories: 2000,
+      under_eating_threshold: 1500,
       target_calories: 2000,
       target_protein: 150,
       target_carbs: 200,
       target_fat: 65,
+      target_steps: 5000,
     };
     await handleSaveProfile(defaultProfile);
     Alert.alert('Targets Set', 'We assigned default targets. You can edit them anytime in your profile.');
+  };
+
+  const MET_VALUES: Record<string, number> = {
+    weightlifting_heavy: 5.0,
+    strength_training: 5.0,
+    walking_light: 3.0,
+    running_moderate: 8.3,
+    yoga: 2.5,
+    cycling_moderate: 6.8,
+    swimming_moderate: 6.0,
+    hiit: 8.0,
+    basketball: 6.5
+  };
+
+  const calculateCaloriesBurned = (type: string, duration: number, steps: number, weight: number) => {
+    if (type === 'Steps') {
+      if (steps <= 5000) return 0;
+      return (steps - 5000) * (weight * 0.04) / 1000;
+    }
+    const met = MET_VALUES[type] || 5.0; // default to 5.0 if unknown
+    return duration * ((met * 3.5 * weight) / 200);
+  };
+
+  const handleAnalyzeExercise = async (text: string) => {
+    setScanningType('exercise');
+    try {
+      const { data, error } = await supabase.functions.invoke('log-exercise', {
+        body: { text }
+      });
+      if (error) throw error;
+      return data.data;
+    } catch (err: any) {
+      Alert.alert('Analysis Failed', err.message || 'Could not analyze exercise.');
+      throw err;
+    } finally {
+      setScanningType(null);
+    }
+  };
+
+  const handleLogExercise = async (type: string, duration: number, steps: number, desc: string) => {
+    if (!userId) return;
+    const weight = profile?.weight_kg || 70; // fallback if missing
+    
+    const caloriesBurned = calculateCaloriesBurned(type, duration, steps, weight);
+    
+    try {
+      const { data, error } = await supabase
+        .from('exercises')
+        .insert({
+          user_id: userId,
+          exercise_type: type,
+          description: desc,
+          duration_minutes: duration,
+          steps_count: steps,
+          calories_burned: caloriesBurned,
+        })
+        .select()
+        .single();
+        
+      if (error) throw error;
+      
+      setTodaysExercises(prev => [...prev, data as ExerciseEntry]);
+    } catch (err: any) {
+      Alert.alert('Log Failed', err.message);
+    }
+  };
+
+  const handleDeleteExercise = async (entry: ExerciseEntry) => {
+    setTodaysExercises(prev => prev.filter(e => e.id !== entry.id));
+    try {
+      const { error } = await supabase.from('exercises').delete().eq('id', entry.id);
+      if (error) throw error;
+    } catch (err: any) {
+      Alert.alert('Delete Failed', err.message);
+      if (userId) fetchDashboardData(userId);
+    }
   };
 
   const openAddFood = (mealType: string) => {
@@ -178,9 +273,7 @@ export default function HomeScreen() {
 
   // Step 1: Call Gemini
   const handleAnalyze = async (text?: string, imageBase64?: string) => {
-    setAddModalVisible(false);
-    setIsScanning(true);
-
+    setScanningType('meal');
     try {
       const { data, error } = await supabase.functions.invoke('scan-food', {
         body: { text, image_base64: imageBase64, meal_type: activeMealType }
@@ -193,7 +286,7 @@ export default function HomeScreen() {
     } catch (err: any) {
       Alert.alert('Analysis Failed', err.message || 'Could not analyze meal.');
     } finally {
-      setIsScanning(false);
+      setScanningType(null);
     }
   };
 
@@ -402,13 +495,17 @@ export default function HomeScreen() {
     return 'Good Evening';
   };
 
-  if (isScanning) {
+  if (scanningType) {
     return (
       <View style={[styles.container, { backgroundColor: isDark ? '#0F172A' : '#F8FAFC', justifyContent: 'center' }]}>
-        <ScanningLoader />
+        <ScanningLoader type={scanningType} />
       </View>
     );
   }
+
+  const totalBurnedCalories = todaysExercises.reduce((sum, e) => sum + (e.calories_burned || 0), 0);
+  const targetCals = profile?.target_calories ? profile.target_calories + totalBurnedCalories : undefined;
+  const targetCarbs = profile?.target_carbs ? profile.target_carbs + (totalBurnedCalories / 4) : undefined;
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#0F172A' : '#F8FAFC' }]}>
@@ -437,10 +534,11 @@ export default function HomeScreen() {
           protein={dailySummary.protein}
           carbs={dailySummary.carbs}
           fat={dailySummary.fat}
-          targetCalories={profile?.target_calories}
+          targetCalories={targetCals}
           targetProtein={profile?.target_protein}
-          targetCarbs={profile?.target_carbs}
+          targetCarbs={targetCarbs}
           targetFat={profile?.target_fat}
+          burnedCalories={totalBurnedCalories}
         />
 
         {MEAL_TYPES.map((meal) => (
@@ -455,6 +553,12 @@ export default function HomeScreen() {
             onEditEntry={handleEditEntry}
           />
         ))}
+
+        <ExerciseSection
+          entries={todaysExercises}
+          onAddPress={() => setAddExerciseVisible(true)}
+          onDeleteEntry={handleDeleteExercise}
+        />
 
         <View style={styles.accountInfo}>
           <Text style={[styles.accountEmail, { color: isDark ? '#475569' : '#CBD5E1' }]}>
@@ -473,13 +577,20 @@ export default function HomeScreen() {
         onRepeatYesterday={handleRepeatYesterday}
       />
 
+      <AddExerciseModal
+        visible={addExerciseVisible}
+        onClose={() => setAddExerciseVisible(false)}
+        onAnalyzeExercise={handleAnalyzeExercise}
+        onLogExercise={handleLogExercise}
+      />
+
       <MealReviewModal
         visible={reviewVisible}
         mealType={activeMealType}
         estimate={estimate}
-        editingEntry={editingEntry}
+        isEditMode={!!editingEntry}
         onSave={handleSaveMeal}
-        onCancel={() => {
+        onClose={() => {
           setReviewVisible(false);
           setEditingEntry(null);
           setEstimate(null);
@@ -502,7 +613,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingTop: 60,
+    paddingTop: 20,
     paddingBottom: 100,
   },
   header: {

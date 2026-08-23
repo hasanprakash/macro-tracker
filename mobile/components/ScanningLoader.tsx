@@ -2,23 +2,40 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
-const STEPS = [
+const MEAL_STEPS = [
   { label: 'Identifying foods...', emoji: '🔍' },
   { label: 'Estimating portions...', emoji: '⚖️' },
   { label: 'Calculating nutrition...', emoji: '📊' },
   { label: 'Preparing results...', emoji: '✨' },
 ];
 
+const EXERCISE_STEPS = [
+  { label: 'Analyzing text...', emoji: '📝' },
+  { label: 'Identifying exercise...', emoji: '🏃' },
+  { label: 'Calculating intensity...', emoji: '🔥' },
+  { label: 'Logging calories...', emoji: '✅' },
+];
+
 // Each step advances every 6 seconds, giving ~24s total before looping.
 // The actual Gemini call usually finishes within 10-30s.
 const STEP_DURATION_MS = 6000;
 
-export function ScanningLoader() {
+interface ScanningLoaderProps {
+  type?: 'meal' | 'exercise';
+}
+
+export function ScanningLoader({ type = 'meal' }: ScanningLoaderProps) {
+  const STEPS = type === 'meal' ? MEAL_STEPS : EXERCISE_STEPS;
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
   const [currentStep, setCurrentStep] = useState(0);
   const [pulseAnim] = useState(new Animated.Value(1));
-  const [fadeAnims] = useState(STEPS.map(() => new Animated.Value(0)));
+  const [fadeAnims] = useState([
+    new Animated.Value(0),
+    new Animated.Value(0),
+    new Animated.Value(0),
+    new Animated.Value(0)
+  ]);
 
   // Pulse animation on the food emoji
   useEffect(() => {
@@ -68,15 +85,15 @@ export function ScanningLoader() {
     <View style={styles.container}>
       {/* Pulsing food emoji */}
       <Animated.Text style={[styles.mainEmoji, { transform: [{ scale: pulseAnim }] }]}>
-        🍛
+        {type === 'meal' ? '🍛' : '💪'}
       </Animated.Text>
 
       <Text style={[styles.title, { color: isDark ? '#F8FAFC' : '#0F172A' }]}>
-        Analyzing your meal
+        {type === 'meal' ? 'Analyzing your meal' : 'Analyzing your workout'}
       </Text>
 
       <Text style={[styles.subtitle, { color: isDark ? '#94A3B8' : '#64748B' }]}>
-        Our AI is breaking down your food
+        {type === 'meal' ? 'Our AI is breaking down your food' : 'Our AI is estimating your calories'}
       </Text>
 
       {/* Steps list */}

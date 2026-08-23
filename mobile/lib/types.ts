@@ -15,9 +15,12 @@ export interface Profile {
   age: number | null;
   goal: string | null;
   target_calories: number | null;
+  maintenance_calories: number | null;
+  under_eating_threshold: number | null;
   target_protein: number | null;
   target_carbs: number | null;
   target_fat: number | null;
+  target_steps: number | null;
 }
 
 /** A single food item with nutritional breakdown */
@@ -91,5 +94,18 @@ export interface RecentFood {
   total_fat: number;
   used_count: number;
   last_used_at: string;
+  created_at: string;
+}
+
+/** An exercise logged by the user */
+export interface ExerciseEntry {
+  id: string;
+  user_id: string;
+  exercise_date: string;
+  exercise_type: string;
+  description: string | null;
+  duration_minutes: number;
+  steps_count: number;
+  calories_burned: number;
   created_at: string;
 }
