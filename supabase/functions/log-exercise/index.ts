@@ -5,31 +5,8 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const geminiPrompt = `
-Extract the exercise type and duration in minutes from the user's description.
-The exercise_type MUST be one of the following standard MET categories:
-- weightlifting_heavy (MET 5.0)
-- strength_training (MET 5.0)
-- walking_light (MET 3.0)
-- running_moderate (MET 8.3)
-- yoga (MET 2.5)
-- cycling_moderate (MET 6.8)
-- swimming_moderate (MET 6.0)
-- hiit (MET 8.0)
-- basketball (MET 6.5)
+// Dynamic prompt will be generated inside the handler
 
-If the user's exercise does not perfectly match, pick the closest one.
-Return ONLY a JSON object with 'exercise_type' (string) and 'duration_minutes' (number).
-`;
-
-const schema = {
-  type: "object",
-  properties: {
-    exercise_type: { type: "string" },
-    duration_minutes: { type: "number" }
-  },
-  required: ["exercise_type", "duration_minutes"]
-};
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -63,7 +40,7 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    const { text } = body;
+    const { text, weight = 70 } = body;
 
     if (!text) {
       return new Response(
@@ -71,6 +48,37 @@ Deno.serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+
+    const { data: activities, error: actError } = await supabase
+      .from('activity_types')
+      .select('code, name, met')
+      .eq('is_active', true);
+
+    if (actError || !activities || activities.length === 0) {
+      throw new Error('Failed to load activity types');
+    }
+
+    const activityList = activities.map(a => `- ${a.name} (Code: ${a.code})`).join('\n');
+
+    const geminiPrompt = `
+Extract the exercise activity code and duration in minutes from the user's description.
+The activity_code MUST be one of the following codes:
+${activityList}
+
+If the user's exercise does not perfectly match, pick the closest one based on the name.
+Also, generate a short, simple, 2-4 word title for the exercise in the 'title' field (e.g., 'Morning Run' or 'Gym Session').
+Return ONLY a JSON object with 'title' (string), 'activity_code' (string) and 'duration_minutes' (number).
+`;
+
+    const schema = {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        activity_code: { type: "string" },
+        duration_minutes: { type: "number" }
+      },
+      required: ["title", "activity_code", "duration_minutes"]
+    };
 
     const apiKey = Deno.env.get('GEMINI_API_KEY');
     if (!apiKey) {
@@ -109,8 +117,23 @@ Deno.serve(async (req) => {
       throw new Error("Gemini response was not valid JSON");
     }
 
+    const matchedActivity = activities.find(a => a.code === parsedResponse.activity_code) || activities[0];
+    const duration = parsedResponse.duration_minutes || 0;
+    const met = matchedActivity.met || 5.0;
+    const caloriesBurned = duration * (((met - 1) * 3.5 * weight) / 200);
+
+    const finalResult = {
+      title: parsedResponse.title || matchedActivity.name,
+      exercise_type: matchedActivity.name,
+      activity_code: matchedActivity.code,
+      duration_minutes: duration,
+      calories_burned: caloriesBurned,
+      source: 'gemini',
+      calculation_method: 'met'
+    };
+
     return new Response(
-      JSON.stringify({ success: true, data: parsedResponse }),
+      JSON.stringify({ success: true, data: finalResult }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error: any) {

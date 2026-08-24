@@ -1,19 +1,21 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
+import { useRouter } from 'expo-router';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { supabase } from '@/lib/supabase';
 import type { FoodItem, MealEstimate, MealTotals, MealEntry, RecentFood, Profile, ExerciseEntry } from '@/lib/types';
+import { ExerciseSource, CalculationMethod } from '@/lib/constants';
 
 import { DailySummaryCard } from '@/components/DailySummaryCard';
 import { MealSection } from '@/components/MealSection';
@@ -23,6 +25,10 @@ import { MealReviewModal } from '@/components/MealReviewModal';
 import { OnboardingModal } from '@/components/OnboardingModal';
 import { AddExerciseModal } from '@/components/AddExerciseModal';
 import { ExerciseSection } from '@/components/ExerciseSection';
+import { useHealthConnect } from '@/hooks/useHealthConnect';
+import { useAlert } from '@/components/ui/CustomAlert';
+
+const { width } = Dimensions.get('window');
 
 const MEAL_TYPES = [
   { title: 'Breakfast', icon: 'sunny-outline' as const, color: '#F59E0B' },
@@ -35,6 +41,7 @@ export default function HomeScreen() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
   const textPrimary = isDark ? '#F8FAFC' : '#0F172A';
+  const { showAlert } = useAlert();
 
   const [userName, setUserName] = useState<string>('');
   const [userEmail, setUserEmail] = useState<string>('');
@@ -58,6 +65,9 @@ export default function HomeScreen() {
   const [reviewVisible, setReviewVisible] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [editingEntry, setEditingEntry] = useState<MealEntry | null>(null);
+
+  const router = useRouter();
+  const { steps: hcSteps, activeCalories: hcActiveCalories, isSupported: hcSupported } = useHealthConnect();
 
   const fetchDashboardData = useCallback(async (uid: string) => {
     const today = new Date().toISOString().split('T')[0];
@@ -150,9 +160,83 @@ export default function HomeScreen() {
     init();
   }, [fetchDashboardData]);
 
+  // Sync Health Connect steps to database
+  useEffect(() => {
+    const syncStepsToDB = async () => {
+      if (!userId || !hcSupported || hcSteps === null || hcSteps <= 0 || !profile) return;
+      
+      const today = new Date().toISOString().split('T')[0];
+      const strideCm = profile.stride_length_cm || ((profile.height_cm || 170) * 0.414);
+      const distanceKm = hcSteps * (strideCm / 100) / 1000;
+      
+      let burned = 0;
+      let calcMethod = CalculationMethod.HEALTH_PLATFORM;
+
+      if (hcActiveCalories && hcActiveCalories > 0) {
+        burned = hcActiveCalories;
+      } else {
+        calcMethod = CalculationMethod.STEP_DISTANCE_ESTIMATE;
+        const durationMins = (distanceKm / 4.5) * 60;
+        const weight = profile.weight_kg || 70;
+        burned = durationMins * ((3.5 - 1) * 3.5 * weight) / 200;
+      }
+
+      // Query DB directly to avoid race conditions with local state
+      const { data: existingData } = await supabase
+        .from('exercises')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('exercise_date', today)
+        .eq('exercise_type', 'Steps')
+        .maybeSingle();
+
+      if (existingData) {
+        if (existingData.steps_count !== hcSteps || Math.abs(existingData.calories_burned - burned) > 1) {
+          const { error } = await supabase.from('exercises').update({
+            steps_count: hcSteps,
+            calories_burned: burned,
+            description: `≈ ${distanceKm.toFixed(1)} km`,
+            source: ExerciseSource.HEALTH_CONNECT,
+            calculation_method: calcMethod
+          }).eq('id', existingData.id);
+          
+          if (!error) {
+            setTodaysExercises(prev => prev.map(e => e.id === existingData.id ? { ...e, steps_count: hcSteps, calories_burned: burned, description: `≈ ${distanceKm.toFixed(1)} km`, source: ExerciseSource.HEALTH_CONNECT, calculation_method: calcMethod } : e));
+          }
+        }
+      } else {
+        const newEntry = {
+          user_id: userId,
+          exercise_date: today,
+          exercise_type: 'Steps',
+          description: `≈ ${distanceKm.toFixed(1)} km`,
+          duration_minutes: 0,
+          steps_count: hcSteps,
+          calories_burned: burned,
+          source: ExerciseSource.HEALTH_CONNECT,
+          calculation_method: calcMethod,
+        };
+        const { data, error } = await supabase.from('exercises').insert(newEntry).select().single();
+        if (data && !error) {
+          // Clean state first to prevent duplicates
+          setTodaysExercises(prev => {
+            const filtered = prev.filter(e => e.exercise_type !== 'Steps' || e.exercise_date !== today);
+            return [...filtered, data];
+          });
+        }
+      }
+    };
+
+    const timeoutId = setTimeout(() => {
+      syncStepsToDB();
+    }, 2000);
+
+    return () => clearTimeout(timeoutId);
+  }, [hcSteps, hcActiveCalories, userId, profile]);
+
   const handleSignOut = async () => {
     const { error } = await supabase.auth.signOut();
-    if (error) Alert.alert('Sign Out Error', error.message);
+    if (error) showAlert('Sign Out Error', error.message);
   };
 
   const handleSaveProfile = async (profileData: Partial<Profile>) => {
@@ -165,7 +249,7 @@ export default function HomeScreen() {
       .single();
       
     if (error) {
-      Alert.alert('Error saving profile', error.message);
+      showAlert('Error saving profile', error.message);
       return;
     }
     
@@ -187,62 +271,43 @@ export default function HomeScreen() {
       target_steps: 5000,
     };
     await handleSaveProfile(defaultProfile);
-    Alert.alert('Targets Set', 'We assigned default targets. You can edit them anytime in your profile.');
+    showAlert('Targets Set', 'We assigned default targets. You can edit them anytime in your profile.');
   };
 
-  const MET_VALUES: Record<string, number> = {
-    weightlifting_heavy: 5.0,
-    strength_training: 5.0,
-    walking_light: 3.0,
-    running_moderate: 8.3,
-    yoga: 2.5,
-    cycling_moderate: 6.8,
-    swimming_moderate: 6.0,
-    hiit: 8.0,
-    basketball: 6.5
-  };
-
-  const calculateCaloriesBurned = (type: string, duration: number, steps: number, weight: number) => {
-    if (type === 'Steps') {
-      if (steps <= 5000) return 0;
-      return (steps - 5000) * (weight * 0.04) / 1000;
-    }
-    const met = MET_VALUES[type] || 5.0; // default to 5.0 if unknown
-    return duration * ((met * 3.5 * weight) / 200);
-  };
 
   const handleAnalyzeExercise = async (text: string) => {
     setScanningType('exercise');
     try {
+      const weight = profile?.weight_kg || 70;
       const { data, error } = await supabase.functions.invoke('log-exercise', {
-        body: { text }
+        body: { text, weight }
       });
       if (error) throw error;
       return data.data;
     } catch (err: any) {
-      Alert.alert('Analysis Failed', err.message || 'Could not analyze exercise.');
+      showAlert('Analysis Failed', err.message || 'Could not analyze exercise.');
       throw err;
     } finally {
       setScanningType(null);
     }
   };
 
-  const handleLogExercise = async (type: string, duration: number, steps: number, desc: string) => {
+  const handleLogExercise = async (entryData: any, desc: string) => {
     if (!userId) return;
-    const weight = profile?.weight_kg || 70; // fallback if missing
-    
-    const caloriesBurned = calculateCaloriesBurned(type, duration, steps, weight);
     
     try {
       const { data, error } = await supabase
         .from('exercises')
         .insert({
           user_id: userId,
-          exercise_type: type,
+          title: entryData.title,
+          exercise_type: entryData.exercise_type,
           description: desc,
-          duration_minutes: duration,
-          steps_count: steps,
-          calories_burned: caloriesBurned,
+          duration_minutes: entryData.duration_minutes,
+          steps_count: 0,
+          calories_burned: entryData.calories_burned,
+          source: ExerciseSource.MANUAL,
+          calculation_method: CalculationMethod.MET,
         })
         .select()
         .single();
@@ -251,7 +316,7 @@ export default function HomeScreen() {
       
       setTodaysExercises(prev => [...prev, data as ExerciseEntry]);
     } catch (err: any) {
-      Alert.alert('Log Failed', err.message);
+      showAlert('Log Failed', err.message);
     }
   };
 
@@ -261,7 +326,7 @@ export default function HomeScreen() {
       const { error } = await supabase.from('exercises').delete().eq('id', entry.id);
       if (error) throw error;
     } catch (err: any) {
-      Alert.alert('Delete Failed', err.message);
+      showAlert('Delete Failed', err.message);
       if (userId) fetchDashboardData(userId);
     }
   };
@@ -284,14 +349,14 @@ export default function HomeScreen() {
       setEstimate(data.data as MealEstimate);
       setReviewVisible(true);
     } catch (err: any) {
-      Alert.alert('Analysis Failed', err.message || 'Could not analyze meal.');
+      showAlert('Analysis Failed', err.message || 'Could not analyze meal.');
     } finally {
       setScanningType(null);
     }
   };
 
   // Step 2: Save to DB
-  const handleSaveMeal = async (mealName: string, foods: FoodItem[], totals: MealTotals) => {
+  const handleSaveMeal = async (mealName: string, title: string, foods: FoodItem[], totals: MealTotals) => {
     setIsSaving(true);
     try {
       if (editingEntry) {
@@ -314,6 +379,7 @@ export default function HomeScreen() {
         body: {
           meal_type: activeMealType,
           meal_name: mealName,
+          title: title,
           foods: foods,
           totals: totals,
         }
@@ -326,7 +392,7 @@ export default function HomeScreen() {
       setEditingEntry(null);
       if (userId) fetchDashboardData(userId);
     } catch (err: any) {
-      Alert.alert(
+      showAlert(
         editingEntry ? 'Update Failed' : 'Save Failed',
         err.message || 'Could not save meal.',
       );
@@ -353,7 +419,7 @@ export default function HomeScreen() {
 
       if (error) throw error;
     } catch (err: any) {
-      Alert.alert('Delete Failed', err.message || 'Could not delete entry.');
+      showAlert('Delete Failed', err.message || 'Could not delete entry.');
       // Re-fetch to rollback/sync local state if RPC failed
       if (userId) fetchDashboardData(userId);
     }
@@ -431,7 +497,7 @@ export default function HomeScreen() {
         .lt('created_at', `${new Date().toISOString().split('T')[0]}T00:00:00.000Z`);
 
       if (!yesterdayEntries || yesterdayEntries.length === 0) {
-        Alert.alert('No meals found', `You didn't log any ${activeMealType} yesterday.`);
+        showAlert('No meals found', `You didn't log any ${activeMealType} yesterday.`);
         return;
       }
 
@@ -484,7 +550,7 @@ export default function HomeScreen() {
       setReviewVisible(true);
     } catch (e) {
       console.error(e);
-      Alert.alert('Error', 'Could not fetch yesterday\'s meals.');
+      showAlert('Error', 'Could not fetch yesterday\'s meals.');
     }
   };
 
@@ -503,9 +569,48 @@ export default function HomeScreen() {
     );
   }
 
-  const totalBurnedCalories = todaysExercises.reduce((sum, e) => sum + (e.calories_burned || 0), 0);
-  const targetCals = profile?.target_calories ? profile.target_calories + totalBurnedCalories : undefined;
-  const targetCarbs = profile?.target_carbs ? profile.target_carbs + (totalBurnedCalories / 4) : undefined;
+  const hcStepsEntry = hcSupported && hcSteps !== null && hcSteps > 0 ? (() => {
+    const strideCm = profile?.stride_length_cm || ((profile?.height_cm || 170) * 0.414);
+    const distanceKm = hcSteps * (strideCm / 100) / 1000;
+    
+    let burned = 0;
+    let calcMethod = CalculationMethod.HEALTH_PLATFORM;
+
+    if (hcActiveCalories && hcActiveCalories > 0) {
+      burned = hcActiveCalories;
+    } else {
+      calcMethod = CalculationMethod.STEP_DISTANCE_ESTIMATE;
+      const durationMins = (distanceKm / 4.5) * 60;
+      const weight = profile?.weight_kg || 70;
+      burned = durationMins * ((3.5 - 1) * 3.5 * weight) / 200;
+    }
+
+    return {
+      id: 'health-connect-steps',
+      user_id: userId || '',
+      exercise_date: new Date().toISOString().split('T')[0],
+      exercise_type: 'Steps',
+      description: `≈ ${distanceKm.toFixed(1)} km`,
+      duration_minutes: 0,
+      steps_count: hcSteps,
+      calories_burned: burned,
+      created_at: new Date().toISOString(),
+      source: ExerciseSource.HEALTH_CONNECT,
+      calculation_method: calcMethod,
+    } as ExerciseEntry;
+  })() : null;
+
+  const displayExercises = [
+    ...(hcStepsEntry ? [hcStepsEntry] : []),
+    ...todaysExercises.filter(e => e.exercise_type !== 'Steps')
+  ];
+
+  const totalBurnedCalories = displayExercises.reduce((sum, e) => sum + (e.calories_burned || 0), 0);
+  const activityCreditFactor = profile?.activity_credit_factor ?? 0.70;
+  const activityCredit = totalBurnedCalories * activityCreditFactor;
+
+  const targetCals = profile?.target_calories ? profile.target_calories + activityCredit : undefined;
+  const targetCarbs = profile?.target_carbs ? profile.target_carbs + (activityCredit / 4) : undefined;
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#0F172A' : '#F8FAFC' }]}>
@@ -517,15 +622,23 @@ export default function HomeScreen() {
             <Text style={[styles.greeting, { color: isDark ? '#94A3B8' : '#64748B' }]}>{greeting()} 👋</Text>
             <Text style={[styles.name, { color: textPrimary }]}>{userName}</Text>
           </View>
-          <Pressable style={[styles.profileButton, { backgroundColor: isDark ? '#1E293B' : '#FFFFFF' }]} onPress={handleSignOut}>
-            <Ionicons name="log-out-outline" size={22} color={isDark ? '#94A3B8' : '#64748B'} />
-          </Pressable>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Pressable style={[styles.profileButton, { backgroundColor: isDark ? '#1E293B' : '#FFFFFF' }]} onPress={() => router.push('/settings')}>
+              <Ionicons name="settings-outline" size={22} color={isDark ? '#94A3B8' : '#64748B'} />
+            </Pressable>
+            <Pressable style={[styles.profileButton, { backgroundColor: isDark ? '#1E293B' : '#FFFFFF' }]} onPress={handleSignOut}>
+              <Ionicons name="log-out-outline" size={22} color={isDark ? '#94A3B8' : '#64748B'} />
+            </Pressable>
+          </View>
         </View>
         
         <View style={styles.headerRow}>
           <Text style={[styles.dateText, { color: textPrimary }]}>Today, {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</Text>
           <View style={styles.headerIcons}>
-            <Ionicons name="calendar-outline" size={24} color={textPrimary} />
+            <View style={styles.dateBadge}>
+              <Ionicons name="calendar-outline" size={14} color={isDark ? '#94A3B8' : '#64748B'} />
+              <Text style={[styles.dayBadgeText, { color: isDark ? '#94A3B8' : '#64748B' }]}>DAY 1</Text>
+            </View>
           </View>
         </View>
 
@@ -539,6 +652,7 @@ export default function HomeScreen() {
           targetCarbs={targetCarbs}
           targetFat={profile?.target_fat}
           burnedCalories={totalBurnedCalories}
+          underEatingThreshold={profile?.under_eating_threshold}
         />
 
         {MEAL_TYPES.map((meal) => (
@@ -555,7 +669,7 @@ export default function HomeScreen() {
         ))}
 
         <ExerciseSection
-          entries={todaysExercises}
+          entries={displayExercises}
           onAddPress={() => setAddExerciseVisible(true)}
           onDeleteEntry={handleDeleteExercise}
         />
@@ -635,6 +749,20 @@ const styles = StyleSheet.create({
   headerIcons: {
     flexDirection: 'row',
     gap: 12,
+  },
+  dateBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(150, 150, 150, 0.1)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    gap: 6,
+  },
+  dayBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   greeting: {
     fontSize: 14,

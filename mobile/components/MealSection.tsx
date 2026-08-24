@@ -108,14 +108,21 @@ export function MealSection({ title, icon, color, entries, onAddPress, onDeleteE
                   activeOpacity={0.7}
                 >
                   <View style={styles.entryInfo}>
-                    <Text style={[styles.entryName, { color: textPrimary }]}>{entry.meal_name}</Text>
+                    <Text style={[styles.entryName, { color: textPrimary }]} numberOfLines={1}>
+                      {entry.title || entry.meal_name}
+                    </Text>
+                    {entry.meal_name && entry.meal_name !== entry.title && (
+                      <Text style={[styles.entryDesc, { color: textSecondary }]} numberOfLines={1}>
+                        {entry.meal_name}
+                      </Text>
+                    )}
                     <Text style={[styles.entryMacros, { color: textSecondary }]}>
-                      P: {Math.round(entry.protein)}g · C: {Math.round(entry.carbs)}g · F: {Math.round(entry.fat)}g
+                      Protein: {Math.round(entry.protein)}g • Carbs: {Math.round(entry.carbs)}g • Fat: {Math.round(entry.fat)}g
                     </Text>
                   </View>
                   <View style={styles.entryRowRight}>
                     <Text style={[styles.entryCal, { color: textPrimary }]}>
-                      {Math.round(entry.calories)} kcal
+                      {Math.round(entry.calories || 0)} kcal
                     </Text>
                     <Ionicons name="chevron-forward" size={14} color={textSecondary} style={{ marginLeft: 4 }} />
                   </View>
@@ -191,9 +198,14 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
   },
-  entryMacros: {
-    fontSize: 11,
+  entryDesc: {
+    fontSize: 13,
     marginTop: 2,
+    fontStyle: 'italic',
+  },
+  entryMacros: {
+    fontSize: 12,
+    marginTop: 4,
   },
   entryRowRight: {
     flexDirection: 'row',

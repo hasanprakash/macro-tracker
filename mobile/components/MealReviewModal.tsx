@@ -22,7 +22,7 @@ interface MealReviewModalProps {
   mealType: string;
   estimate: MealEstimate | null;
   onClose: () => void;
-  onSave: (mealName: string, foods: FoodItem[], totals: MealTotals) => void;
+  onSave: (mealName: string, title: string, foods: FoodItem[], totals: MealTotals) => void;
   isSaving: boolean;
   isEditMode?: boolean;
 }
@@ -76,6 +76,7 @@ export function MealReviewModal({
   const [originalFoods, setOriginalFoods] = useState<FoodItem[]>([]);
   const [currentFoods, setCurrentFoods] = useState<FoodItem[]>([]);
   const [mealName, setMealName] = useState('');
+  const [title, setTitle] = useState('');
 
   // Re-initialize when the estimate changes
   React.useEffect(() => {
@@ -83,6 +84,7 @@ export function MealReviewModal({
       setOriginalFoods(estimate.foods);
       setCurrentFoods(estimate.foods);
       setMealName(estimate.meal_name);
+      setTitle(estimate.title || estimate.meal_name);
     }
   }, [estimate]);
 
@@ -107,7 +109,7 @@ export function MealReviewModal({
   }, []);
 
   const handleSave = () => {
-    onSave(mealName, currentFoods, totals);
+    onSave(mealName, title, currentFoods, totals);
   };
 
   if (!estimate) return null;

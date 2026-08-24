@@ -1,6 +1,7 @@
-// =============================================================================
 // Shared TypeScript types for Macro Tracker
 // =============================================================================
+
+import { ExerciseSource, CalculationMethod } from './constants';
 
 /** User profile and goals from the profiles table */
 export interface Profile {
@@ -21,6 +22,8 @@ export interface Profile {
   target_carbs: number | null;
   target_fat: number | null;
   target_steps: number | null;
+  activity_credit_factor?: number | null;
+  stride_length_cm?: number | null;
 }
 
 /** A single food item with nutritional breakdown */
@@ -44,6 +47,7 @@ export interface MealTotals {
 
 /** The response from the scan-food edge function (Gemini estimate) */
 export interface MealEstimate {
+  title?: string;
   meal_name: string;
   foods: FoodItem[];
   totals: MealTotals;
@@ -64,6 +68,7 @@ export interface MealEntry {
   sugar: number;
   sodium: number;
   image_path: string | null;
+  title?: string | null;
   raw_input?: { foods?: FoodItem[] } | null;
   created_at: string;
   meal_food?: MealFood[];
@@ -105,7 +110,10 @@ export interface ExerciseEntry {
   exercise_type: string;
   description: string | null;
   duration_minutes: number;
-  steps_count: number;
+  steps_count?: number;
   calories_burned: number;
+  title?: string | null;
   created_at: string;
+  source?: ExerciseSource | string | null;
+  calculation_method?: CalculationMethod | string | null;
 }

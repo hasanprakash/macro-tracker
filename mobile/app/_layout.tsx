@@ -24,13 +24,23 @@ import "react-native-reanimated";
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { supabase } from "@/lib/supabase";
+import { AlertProvider, useAlert } from "@/components/ui/CustomAlert";
 
 export const unstable_settings = {
   anchor: "(tabs)",
 };
 
 export default function RootLayout() {
+  return (
+    <AlertProvider>
+      <RootContent />
+    </AlertProvider>
+  );
+}
+
+function RootContent() {
   const colorScheme = useColorScheme();
+  const { showAlert } = useAlert();
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [signingIn, setSigningIn] = useState<boolean>(false);
@@ -70,7 +80,7 @@ export default function RootLayout() {
         refresh_token: refreshToken,
       });
       if (error) {
-        Alert.alert("Session Error", error.message);
+        showAlert("Session Error", error.message);
       }
     }
   };
@@ -108,7 +118,7 @@ export default function RootLayout() {
         await extractSessionFromUrl(result.url);
       }
     } catch (error: any) {
-      Alert.alert(
+      showAlert(
         "Authentication Error",
         error.message || "An error occurred during Google Sign-In.",
       );
@@ -120,7 +130,7 @@ export default function RootLayout() {
   // Sign in with Email and Password
   const signInWithEmail = async () => {
     if (!email || !password) {
-      Alert.alert("Error", "Please enter both email and password.");
+      showAlert("Error", "Please enter both email and password.");
       return;
     }
     try {
@@ -132,7 +142,7 @@ export default function RootLayout() {
 
       if (error) throw error;
     } catch (error: any) {
-      Alert.alert("Authentication Error", error.message);
+      showAlert("Authentication Error", error.message);
     } finally {
       setSigningIn(false);
     }

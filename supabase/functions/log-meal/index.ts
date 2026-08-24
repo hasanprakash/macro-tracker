@@ -40,7 +40,7 @@ Deno.serve(async (req) => {
 
     // ── Validate Payload ─────────────────────────────────────────────
     const body = await req.json();
-    const { meal_type, meal_name, foods, totals, image_base64 } = body;
+    const { meal_type, meal_name, title, foods, totals, image_base64 } = body;
 
     if (!meal_type || !meal_name || !Array.isArray(foods) || foods.length === 0 || !totals) {
       return new Response(
@@ -79,7 +79,6 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ── Call Transactional RPC ────────────────────────────────────────
     const { data: rpcData, error: rpcError } = await supabase.rpc('insert_meal_transaction', {
       p_meal_type: meal_type,
       p_meal_name: meal_name,
@@ -89,8 +88,9 @@ Deno.serve(async (req) => {
       p_fat: totals.fat_g,
       p_image_path: imagePath,
       p_raw_input: { foods },
-      p_ai_response_json: { meal_name, foods, totals },
-      p_foods: foods
+      p_ai_response_json: { meal_name, title, foods, totals },
+      p_foods: foods,
+      p_title: title
     });
 
     if (rpcError) {

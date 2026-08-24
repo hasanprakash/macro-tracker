@@ -14,6 +14,7 @@ Identify:
 - The food items
 - Estimated quantity of each food
 - Total nutritional values for the meal
+- A short, simple, 2-4 word title for the meal in the 'title' field (e.g., 'Chicken Salad' or 'Breakfast Bowl')
 
 Nutrition values must be numeric and represent the entire meal.
 If the exact quantity is unclear, make a reasonable estimate.
@@ -25,6 +26,7 @@ For confidence, provide a value between 0 and 1.
 const macroSchema = {
   type: "object",
   properties: {
+    title: { type: "string" },
     meal_name: { type: "string" },
     foods: {
       type: "array",
@@ -54,7 +56,7 @@ const macroSchema = {
     },
     confidence: { type: "number" }
   },
-  required: ["meal_name", "foods", "totals", "confidence"]
+  required: ["title", "meal_name", "foods", "totals", "confidence"]
 };
 
 Deno.serve(async (req) => {
