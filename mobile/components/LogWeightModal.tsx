@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Modal,
   View,
@@ -13,34 +13,40 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
-interface AddExerciseModalProps {
+interface LogWeightModalProps {
   visible: boolean;
+  initialWeight?: number | null;
   onClose: () => void;
-  onLogExercise: (entryData: any, desc: string) => Promise<void>;
-  onAnalyzeExercise: (text: string) => Promise<any>;
+  onLogWeight: (weight: number) => Promise<void>;
 }
 
-export function AddExerciseModal({
+export function LogWeightModal({
   visible,
+  initialWeight,
   onClose,
-  onLogExercise,
-  onAnalyzeExercise,
-}: AddExerciseModalProps) {
+  onLogWeight,
+}: LogWeightModalProps) {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
 
-  const [exerciseText, setExerciseText] = useState('');
+  const [weightText, setWeightText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+
+  useEffect(() => {
+    if (visible) {
+      setWeightText(initialWeight ? initialWeight.toString() : '');
+    }
+  }, [visible, initialWeight]);
 
   const cardBg = isDark ? '#1E293B' : '#FFFFFF';
   const textPrimary = isDark ? '#F8FAFC' : '#0F172A';
   const textSecondary = isDark ? '#94A3B8' : '#64748B';
   const inputBg = isDark ? '#0F172A' : '#F8FAFC';
   const borderColor = isDark ? '#334155' : '#E2E8F0';
-  const activeColor = '#3B82F6'; // Blue for exercise
+  const activeColor = '#8B5CF6'; // Purple for weight
 
   const handleReset = () => {
-    setExerciseText('');
+    setWeightText('');
   };
 
   const handleClose = () => {
@@ -49,14 +55,14 @@ export function AddExerciseModal({
   };
 
   const handleSubmit = async () => {
+    const weightNum = parseFloat(weightText);
+    if (isNaN(weightNum) || weightNum <= 0) {
+      return;
+    }
+
     setIsProcessing(true);
     try {
-      if (!exerciseText.trim()) {
-        setIsProcessing(false);
-        return;
-      }
-      const result = await onAnalyzeExercise(exerciseText);
-      await onLogExercise(result, exerciseText);
+      await onLogWeight(weightNum);
       handleClose();
     } catch (error) {
       console.error(error);
@@ -73,35 +79,38 @@ export function AddExerciseModal({
       >
         <View style={[styles.modalContent, { backgroundColor: cardBg }]}>
           <View style={styles.header}>
-            <Text style={[styles.title, { color: textPrimary }]}>Log Exercise</Text>
+            <Text style={[styles.title, { color: textPrimary }]}>Log Today's Weight</Text>
             <Pressable onPress={handleClose} style={styles.closeBtn}>
               <Ionicons name="close" size={24} color={textPrimary} />
             </Pressable>
           </View>
 
           <View style={styles.inputContainer}>
-            <Text style={[styles.label, { color: textSecondary }]}>Describe your workout</Text>
+            <Text style={[styles.label, { color: textSecondary }]}>Weight (kg)</Text>
             <TextInput
               style={[styles.textInput, { backgroundColor: inputBg, color: textPrimary, borderColor }]}
-              placeholder="e.g. Ran for 30 minutes, or heavy weightlifting for an hour"
+              placeholder="e.g. 70.5"
               placeholderTextColor={textSecondary}
-              multiline
-              numberOfLines={3}
-              value={exerciseText}
-              onChangeText={setExerciseText}
+              keyboardType="numeric"
+              value={weightText}
+              onChangeText={setWeightText}
               autoFocus
             />
           </View>
 
           <Pressable
-            style={[styles.submitBtn, { backgroundColor: activeColor }, isProcessing && { opacity: 0.7 }]}
+            style={[
+              styles.submitBtn,
+              { backgroundColor: activeColor },
+              (isProcessing || !weightText.trim() || isNaN(parseFloat(weightText))) && { opacity: 0.7 }
+            ]}
             onPress={handleSubmit}
-            disabled={isProcessing}
+            disabled={isProcessing || !weightText.trim() || isNaN(parseFloat(weightText))}
           >
             {isProcessing ? (
               <ActivityIndicator color="#FFF" />
             ) : (
-              <Text style={styles.submitBtnText}>Log Exercise</Text>
+              <Text style={styles.submitBtnText}>Log Weight</Text>
             )}
           </Pressable>
         </View>
@@ -135,21 +144,6 @@ const styles = StyleSheet.create({
   closeBtn: {
     padding: 4,
   },
-  tabContainer: {
-    flexDirection: 'row',
-    marginBottom: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(150,150,150,0.2)',
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  tabText: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
   inputContainer: {
     marginBottom: 24,
   },
@@ -162,19 +156,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 12,
     padding: 16,
-    fontSize: 16,
-    minHeight: 100,
-    textAlignVertical: 'top',
-  },
-  input: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 16,
-  },
-  hint: {
-    fontSize: 12,
-    marginTop: 8,
+    fontSize: 18,
+    fontWeight: '600',
   },
   submitBtn: {
     paddingVertical: 16,

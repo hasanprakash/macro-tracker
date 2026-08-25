@@ -239,7 +239,7 @@ export function MealReviewModal({
           <View style={[styles.totalsContainer, { borderColor }]}>
             <View style={styles.totalRow}>
               <Text style={[styles.totalLabel, { color: textPrimary }]}>Total</Text>
-              <Text style={[styles.totalCalories, { color: '#6366F1' }]}>{totals.calories} kcal</Text>
+              <Text style={[styles.totalCalories, { color: '#10B981' }]}>{totals.calories} kcal</Text>
             </View>
             <View style={styles.macroSummary}>
               <View style={styles.macroChip}>
@@ -428,7 +428,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   saveButton: {
-    backgroundColor: '#6366F1',
+    backgroundColor: '#10B981',
     paddingVertical: 16,
     borderRadius: 14,
     alignItems: 'center',
@@ -446,7 +446,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#EF4444',
   },
   saveButtonDisabled: {
-    backgroundColor: '#A5B4FC',
+    backgroundColor: '#6EE7B7',
     opacity: 0.7,
   },
   saveButtonText: {

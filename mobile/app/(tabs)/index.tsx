@@ -25,16 +25,18 @@ import { MealReviewModal } from '@/components/MealReviewModal';
 import { OnboardingModal } from '@/components/OnboardingModal';
 import { AddExerciseModal } from '@/components/AddExerciseModal';
 import { ExerciseSection } from '@/components/ExerciseSection';
+import { WeightSection } from '@/components/WeightSection';
+import { LogWeightModal } from '@/components/LogWeightModal';
 import { useHealthConnect } from '@/hooks/useHealthConnect';
 import { useAlert } from '@/components/ui/CustomAlert';
 
 const { width } = Dimensions.get('window');
 
 const MEAL_TYPES = [
-  { title: 'Breakfast', icon: 'sunny-outline' as const, color: '#F59E0B' },
+  { title: 'Breakfast', icon: 'sunny-outline' as const, color: '#10B981' },
   { title: 'Lunch', icon: 'partly-sunny-outline' as const, color: '#10B981' },
-  { title: 'Dinner', icon: 'moon-outline' as const, color: '#6366F1' },
-  { title: 'Snacks', icon: 'cafe-outline' as const, color: '#EC4899' },
+  { title: 'Dinner', icon: 'moon-outline' as const, color: '#10B981' },
+  { title: 'Snacks', icon: 'cafe-outline' as const, color: '#10B981' },
 ];
 
 export default function HomeScreen() {
@@ -52,12 +54,15 @@ export default function HomeScreen() {
   const [recentFoods, setRecentFoods] = useState<RecentFood[]>([]);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [todaysExercises, setTodaysExercises] = useState<ExerciseEntry[]>([]);
+  const [todaysWeight, setTodaysWeight] = useState<WeightLog | null>(null);
 
   // UI Flow State
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [activeMealType, setActiveMealType] = useState<string>('');
   const [addModalVisible, setAddModalVisible] = useState(false);
   const [addExerciseVisible, setAddExerciseVisible] = useState(false);
+  const [addWeightVisible, setAddWeightVisible] = useState(false);
+  const [isRefreshingHC, setIsRefreshingHC] = useState(false);
   const [scanningType, setScanningType] = useState<'meal' | 'exercise' | null>(null);
   
   // Review Modal State
@@ -67,7 +72,7 @@ export default function HomeScreen() {
   const [editingEntry, setEditingEntry] = useState<MealEntry | null>(null);
 
   const router = useRouter();
-  const { steps: hcSteps, activeCalories: hcActiveCalories, isSupported: hcSupported } = useHealthConnect();
+  const { steps: hcSteps, activeCalories: hcActiveCalories, isSupported: hcSupported, fetchSteps } = useHealthConnect();
 
   const fetchDashboardData = useCallback(async (uid: string) => {
     const today = new Date().toISOString().split('T')[0];
@@ -122,6 +127,22 @@ export default function HomeScreen() {
 
     if (exercisesData) {
       setTodaysExercises(exercisesData as ExerciseEntry[]);
+    }
+
+    // 5. Fetch today's weight
+    const { data: weightData } = await supabase
+      .from('weight_logs')
+      .select('*')
+      .eq('user_id', uid)
+      .gte('recorded_at', `${today}T00:00:00.000Z`)
+      .order('recorded_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (weightData) {
+      setTodaysWeight(weightData as WeightLog);
+    } else {
+      setTodaysWeight(null);
     }
   }, []);
 
@@ -234,6 +255,16 @@ export default function HomeScreen() {
     return () => clearTimeout(timeoutId);
   }, [hcSteps, hcActiveCalories, userId, profile]);
 
+  const handleRefreshHC = () => {
+    if (isRefreshingHC) return;
+    setIsRefreshingHC(true);
+    fetchSteps();
+    // 15 seconds cooldown
+    setTimeout(() => {
+      setIsRefreshingHC(false);
+    }, 15000);
+  };
+
   const handleSignOut = async () => {
     const { error } = await supabase.auth.signOut();
     if (error) showAlert('Sign Out Error', error.message);
@@ -283,6 +314,7 @@ export default function HomeScreen() {
         body: { text, weight }
       });
       if (error) throw error;
+      if (data?.error) throw new Error(data.error);
       return data.data;
     } catch (err: any) {
       showAlert('Analysis Failed', err.message || 'Could not analyze exercise.');
@@ -331,6 +363,38 @@ export default function HomeScreen() {
     }
   };
 
+  const handleLogWeight = async (weight: number) => {
+    if (!userId) return;
+    try {
+      if (todaysWeight) {
+        // Update existing log for today
+        const { data, error } = await supabase
+          .from('weight_logs')
+          .update({ weight, recorded_at: new Date().toISOString() })
+          .eq('id', todaysWeight.id)
+          .select()
+          .single();
+        if (error) throw error;
+        setTodaysWeight(data as WeightLog);
+      } else {
+        // Insert new log
+        const { data, error } = await supabase
+          .from('weight_logs')
+          .insert({ user_id: userId, weight })
+          .select()
+          .single();
+        if (error) throw error;
+        setTodaysWeight(data as WeightLog);
+      }
+      
+      // Update profile weight
+      await supabase.from('profiles').update({ weight_kg: weight }).eq('id', userId);
+      setProfile(prev => prev ? { ...prev, weight_kg: weight } : null);
+    } catch (err: any) {
+      showAlert('Error logging weight', err.message);
+    }
+  };
+
   const openAddFood = (mealType: string) => {
     setActiveMealType(mealType);
     setAddModalVisible(true);
@@ -345,7 +409,7 @@ export default function HomeScreen() {
       });
       
       if (error) throw error;
-      
+      if (data?.error) throw new Error(data.error);
       setEstimate(data.data as MealEstimate);
       setReviewVisible(true);
     } catch (err: any) {
@@ -375,7 +439,7 @@ export default function HomeScreen() {
         if (delError) throw delError;
       }
 
-      const { error } = await supabase.functions.invoke('log-meal', {
+      const { data, error } = await supabase.functions.invoke('log-meal', {
         body: {
           meal_type: activeMealType,
           meal_name: mealName,
@@ -386,6 +450,7 @@ export default function HomeScreen() {
       });
 
       if (error) throw error;
+      if (data?.error) throw new Error(data.error);
 
       setReviewVisible(false);
       setEstimate(null);
@@ -635,6 +700,15 @@ export default function HomeScreen() {
         <View style={styles.headerRow}>
           <Text style={[styles.dateText, { color: textPrimary }]}>Today, {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</Text>
           <View style={styles.headerIcons}>
+            {hcSupported && (
+              <Pressable
+                style={[styles.dateBadge, isRefreshingHC && { opacity: 0.5 }]}
+                onPress={handleRefreshHC}
+                disabled={isRefreshingHC}
+              >
+                <Ionicons name="sync" size={14} color={isDark ? '#94A3B8' : '#64748B'} />
+              </Pressable>
+            )}
             <View style={styles.dateBadge}>
               <Ionicons name="calendar-outline" size={14} color={isDark ? '#94A3B8' : '#64748B'} />
               <Text style={[styles.dayBadgeText, { color: isDark ? '#94A3B8' : '#64748B' }]}>DAY 1</Text>
@@ -674,6 +748,11 @@ export default function HomeScreen() {
           onDeleteEntry={handleDeleteExercise}
         />
 
+        <WeightSection
+          latestLog={todaysWeight}
+          onAddPress={() => setAddWeightVisible(true)}
+        />
+
         <View style={styles.accountInfo}>
           <Text style={[styles.accountEmail, { color: isDark ? '#475569' : '#CBD5E1' }]}>
             Signed in as {userEmail}
@@ -696,6 +775,13 @@ export default function HomeScreen() {
         onClose={() => setAddExerciseVisible(false)}
         onAnalyzeExercise={handleAnalyzeExercise}
         onLogExercise={handleLogExercise}
+      />
+
+      <LogWeightModal
+        visible={addWeightVisible}
+        initialWeight={todaysWeight?.weight ?? profile?.weight_kg}
+        onClose={() => setAddWeightVisible(false)}
+        onLogWeight={handleLogWeight}
       />
 
       <MealReviewModal

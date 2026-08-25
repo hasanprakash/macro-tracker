@@ -114,8 +114,8 @@ Deno.serve(async (req) => {
   } catch (error: any) {
     console.error("log-meal error:", error);
     return new Response(
-      JSON.stringify({ error: error.message }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      JSON.stringify({ error: error.message || "An unexpected error occurred while saving the meal." }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });

@@ -144,7 +144,7 @@ export function AddFoodModal({
                   style={[styles.optionCard, { backgroundColor: buttonBg, borderColor }]}
                   onPress={handleScanPress}
                 >
-                  <Ionicons name="camera-outline" size={28} color="#6366F1" />
+                  <Ionicons name="camera-outline" size={28} color="#10B981" />
                   <Text style={[styles.optionTitle, { color: textPrimary }]}>Scan meal</Text>
                   <Text style={[styles.optionSub, { color: textSecondary }]}>Use camera</Text>
                 </Pressable>
@@ -204,7 +204,7 @@ export function AddFoodModal({
                         </Text>
                       </View>
                       <View style={styles.addIconWrap}>
-                        <Ionicons name="add" size={20} color="#6366F1" />
+                        <Ionicons name="add" size={20} color="#10B981" />
                       </View>
                     </Pressable>
                   ))
@@ -227,7 +227,7 @@ export function AddFoodModal({
                   style={[styles.imageBtn, { backgroundColor: buttonBg }]}
                   onPress={handleScanPress}
                 >
-                  <Ionicons name="camera" size={20} color="#6366F1" />
+                  <Ionicons name="camera" size={20} color="#10B981" />
                   <Text style={[styles.imageBtnText, { color: textPrimary }]}>
                     {imageBase64 ? 'Retake Photo' : 'Take Photo'}
                   </Text>
@@ -381,7 +381,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: 'rgba(99, 102, 241, 0.1)',
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -440,13 +440,13 @@ const styles = StyleSheet.create({
   },
   submitButton: {
     flex: 2,
-    backgroundColor: '#6366F1',
+    backgroundColor: '#10B981',
     padding: 16,
     borderRadius: 12,
     alignItems: 'center',
   },
   submitButtonDisabled: {
-    backgroundColor: '#A5B4FC',
+    backgroundColor: '#6EE7B7',
     opacity: 0.7,
   },
   submitButtonText: {

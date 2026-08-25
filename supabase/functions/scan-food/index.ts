@@ -149,8 +149,17 @@ Deno.serve(async (req) => {
     });
 
     if (!response.ok) {
-      const err = await response.text();
-      throw new Error(`Gemini API error: ${err}`);
+      const errText = await response.text();
+      let niceError = "AI service error";
+      try {
+        const parsed = JSON.parse(errText);
+        if (parsed.error && parsed.error.message) {
+          niceError = parsed.error.message;
+        }
+      } catch (e) {
+        niceError = errText;
+      }
+      throw new Error(niceError);
     }
 
     const geminiData = await response.json();
@@ -183,9 +192,16 @@ Deno.serve(async (req) => {
 
   } catch (error: any) {
     console.error("scan-food error:", error);
+    
+    let friendlyMessage = error.message || "An unexpected error occurred.";
+    if (friendlyMessage.includes('high demand') || friendlyMessage.includes('503') || friendlyMessage.includes('overloaded')) {
+      friendlyMessage = "Our AI is currently experiencing high demand. Please try again in a moment.";
+    }
+
+    // Return 200 with an error property so the client SDK doesn't throw a generic "Edge Function returned a non-2xx status code" error.
     return new Response(
-      JSON.stringify({ error: error.message }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      JSON.stringify({ error: friendlyMessage }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });

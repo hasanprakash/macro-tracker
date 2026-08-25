@@ -38,7 +38,7 @@ export function ExerciseSection({ entries, onAddPress, onDeleteEntry }: Exercise
   const textSecondary = isDark ? '#94A3B8' : '#64748B';
   const borderColor = isDark ? '#334155' : '#E2E8F0';
   const entryBg = isDark ? '#0F172A' : '#F8FAFC';
-  const color = '#14B8A6'; // Teal
+  const color = '#3B82F6'; // Blue
 
   const toggleExpand = () => {
     const opening = !expanded;

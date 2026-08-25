@@ -103,8 +103,17 @@ Return ONLY a JSON object with 'title' (string), 'activity_code' (string) and 'd
     });
 
     if (!response.ok) {
-      const err = await response.text();
-      throw new Error(`Gemini API error: ${err}`);
+      const errText = await response.text();
+      let niceError = "AI service error";
+      try {
+        const parsed = JSON.parse(errText);
+        if (parsed.error && parsed.error.message) {
+          niceError = parsed.error.message;
+        }
+      } catch (e) {
+        niceError = errText;
+      }
+      throw new Error(niceError);
     }
 
     const geminiData = await response.json();
@@ -138,9 +147,15 @@ Return ONLY a JSON object with 'title' (string), 'activity_code' (string) and 'd
     );
   } catch (error: any) {
     console.error("log-exercise error:", error);
+
+    let friendlyMessage = error.message || "An unexpected error occurred.";
+    if (friendlyMessage.includes('high demand') || friendlyMessage.includes('503') || friendlyMessage.includes('overloaded')) {
+      friendlyMessage = "Our AI is currently experiencing high demand. Please try again in a moment.";
+    }
+
     return new Response(
-      JSON.stringify({ error: error.message }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      JSON.stringify({ error: friendlyMessage }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });
