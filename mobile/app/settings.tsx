@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useAlert } from '@/components/ui/CustomAlert';
 import { OnboardingModal } from '@/components/OnboardingModal';
+import { BYOKModal } from '@/components/BYOKModal';
 import type { Profile } from '@/lib/types';
 
 export default function SettingsScreen() {
@@ -21,6 +22,23 @@ export default function SettingsScreen() {
   const borderColor = isDark ? '#334155' : '#E2E8F0';
 
   const [onboardingVisible, setOnboardingVisible] = useState(false);
+  const [byokVisible, setByokVisible] = useState(false);
+  const [aiSettings, setAiSettings] = useState({ byok_enabled: false, has_custom_key: false });
+
+  useEffect(() => {
+    fetchAiSettings();
+  }, []);
+
+  const fetchAiSettings = async () => {
+    try {
+      const { data, error } = await supabase.rpc('get_ai_settings');
+      if (!error && data) {
+        setAiSettings(data);
+      }
+    } catch (err) {
+      console.log('Error fetching AI settings:', err);
+    }
+  };
 
   const handleSaveOnboarding = async (profileData: Partial<Profile>) => {
     try {
@@ -89,12 +107,45 @@ export default function SettingsScreen() {
             </Pressable>
           </View>
         </View>
+
+        {aiSettings.byok_enabled && (
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: textSecondary }]}>AI FEATURES</Text>
+            
+            <View style={[styles.card, { backgroundColor: bgSurface, borderColor }]}>
+              <Pressable 
+                style={styles.listItem}
+                onPress={() => setByokVisible(true)}
+              >
+                <View style={styles.listItemLeft}>
+                  <View style={[styles.iconContainer, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
+                    <Ionicons name="key-outline" size={20} color="#10B981" />
+                  </View>
+                  <View>
+                    <Text style={[styles.listItemTitle, { color: textPrimary }]}>Custom API Key</Text>
+                    <Text style={[styles.listItemSubtitle, { color: textSecondary }]}>
+                      {aiSettings.has_custom_key ? 'Key is configured' : 'Bring your own Gemini key'}
+                    </Text>
+                  </View>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={textSecondary} />
+              </Pressable>
+            </View>
+          </View>
+        )}
       </ScrollView>
 
       <OnboardingModal
         visible={onboardingVisible}
         onSave={handleSaveOnboarding}
         onSkip={() => setOnboardingVisible(false)}
+      />
+
+      <BYOKModal
+        visible={byokVisible}
+        hasCustomKey={aiSettings.has_custom_key}
+        onClose={() => setByokVisible(false)}
+        onSaveSuccess={fetchAiSettings}
       />
     </SafeAreaView>
   );

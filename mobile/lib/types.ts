@@ -6,6 +6,7 @@ import { ExerciseSource, CalculationMethod } from './constants';
 /** User profile and goals from the profiles table */
 export interface Profile {
   id: string;
+  full_name?: string;
   display_name: string | null;
   height_cm: number | null;
   gender: string | null;

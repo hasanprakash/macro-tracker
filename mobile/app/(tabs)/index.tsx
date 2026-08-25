@@ -27,6 +27,7 @@ import { AddExerciseModal } from '@/components/AddExerciseModal';
 import { ExerciseSection } from '@/components/ExerciseSection';
 import { WeightSection } from '@/components/WeightSection';
 import { LogWeightModal } from '@/components/LogWeightModal';
+import { CalendarModal } from '@/components/CalendarModal';
 import { useHealthConnect } from '@/hooks/useHealthConnect';
 import { useAlert } from '@/components/ui/CustomAlert';
 
@@ -62,6 +63,9 @@ export default function HomeScreen() {
   const [addModalVisible, setAddModalVisible] = useState(false);
   const [addExerciseVisible, setAddExerciseVisible] = useState(false);
   const [addWeightVisible, setAddWeightVisible] = useState(false);
+  const [calendarVisible, setCalendarVisible] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [dayNumber, setDayNumber] = useState<number>(1);
   const [isRefreshingHC, setIsRefreshingHC] = useState(false);
   const [scanningType, setScanningType] = useState<'meal' | 'exercise' | null>(null);
   
@@ -74,15 +78,13 @@ export default function HomeScreen() {
   const router = useRouter();
   const { steps: hcSteps, activeCalories: hcActiveCalories, isSupported: hcSupported, error: hcError, fetchSteps } = useHealthConnect();
 
-  const fetchDashboardData = useCallback(async (uid: string) => {
-    const today = new Date().toISOString().split('T')[0];
-
+  const fetchDashboardData = useCallback(async (uid: string, dateStr: string) => {
     // 1. Fetch daily summary
     const { data: summaryData } = await supabase
       .from('daily_summaries')
       .select('*')
       .eq('user_id', uid)
-      .eq('summary_date', today)
+      .eq('summary_date', dateStr)
       .single();
 
     if (summaryData) {
@@ -92,6 +94,8 @@ export default function HomeScreen() {
         carbs: Number(summaryData.total_carbs || 0),
         fat: Number(summaryData.total_fat || 0),
       });
+    } else {
+      setDailySummary({ calories: 0, protein: 0, carbs: 0, fat: 0 });
     }
 
     // 2. Fetch today's meal entries with foods
@@ -99,11 +103,14 @@ export default function HomeScreen() {
       .from('meal_entries')
       .select('*, meal_food(*)')
       .eq('user_id', uid)
-      .gte('created_at', `${today}T00:00:00.000Z`)
+      .gte('created_at', `${dateStr}T00:00:00.000Z`)
+      .lt('created_at', `${dateStr}T23:59:59.999Z`)
       .order('created_at', { ascending: true });
 
     if (entriesData) {
       setTodaysEntries(entriesData as MealEntry[]);
+    } else {
+      setTodaysEntries([]);
     }
 
     // 3. Fetch recent foods (limit 10)
@@ -123,10 +130,12 @@ export default function HomeScreen() {
       .from('exercises')
       .select('*')
       .eq('user_id', uid)
-      .eq('exercise_date', today);
+      .eq('exercise_date', dateStr);
 
     if (exercisesData) {
       setTodaysExercises(exercisesData as ExerciseEntry[]);
+    } else {
+      setTodaysExercises([]);
     }
 
     // 5. Fetch today's weight
@@ -134,7 +143,8 @@ export default function HomeScreen() {
       .from('weight_logs')
       .select('*')
       .eq('user_id', uid)
-      .gte('recorded_at', `${today}T00:00:00.000Z`)
+      .gte('recorded_at', `${dateStr}T00:00:00.000Z`)
+      .lt('recorded_at', `${dateStr}T23:59:59.999Z`)
       .order('recorded_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -150,10 +160,8 @@ export default function HomeScreen() {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        setUserName(user.user_metadata?.full_name || user.email?.split('@')[0] || 'User');
         setUserEmail(user.email || '');
         setUserId(user.id);
-        fetchDashboardData(user.id);
 
         // Fetch or create profile
         let { data: profileData } = await supabase
@@ -161,25 +169,48 @@ export default function HomeScreen() {
           .select('*')
           .eq('id', user.id)
           .single();
+        const actualName = user.user_metadata?.full_name || '';
           
         if (!profileData) {
           const { data: newProfile } = await supabase
             .from('profiles')
-            .insert({ id: user.id })
+            .insert({ id: user.id, full_name: actualName })
             .select()
             .single();
           profileData = newProfile;
+        } else if (actualName && profileData.full_name !== actualName) {
+          const { data: updatedProfile } = await supabase
+            .from('profiles')
+            .update({ full_name: actualName })
+            .eq('id', user.id)
+            .select()
+            .single();
+          if (updatedProfile) profileData = updatedProfile;
         }
         
+        setUserName(profileData.full_name || profileData.display_name || user.email?.split('@')[0] || 'User');
         setProfile(profileData as Profile);
         
         if (profileData && !profileData.target_calories) {
           setShowOnboarding(true);
         }
+
+        // Calculate Day Number
+        if (profileData?.created_at) {
+          const start = new Date(profileData.created_at);
+          start.setHours(0,0,0,0);
+          const current = new Date(selectedDate);
+          current.setHours(0,0,0,0);
+          const diffTime = current.getTime() - start.getTime();
+          const dayNum = Math.max(1, Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1);
+          setDayNumber(dayNum);
+        }
+
+        fetchDashboardData(user.id, selectedDate);
       }
     };
     init();
-  }, [fetchDashboardData]);
+  }, [fetchDashboardData, selectedDate]);
 
   // Sync Health Connect steps to database
   useEffect(() => {
@@ -714,9 +745,28 @@ export default function HomeScreen() {
         </View>
         
         <View style={styles.headerRow}>
-          <Text style={[styles.dateText, { color: textPrimary }]}>Today, {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</Text>
+          <Text style={[styles.dateText, { color: textPrimary }]}>
+            {(() => {
+              const todayDate = new Date();
+              const todayStr = todayDate.toISOString().split('T')[0];
+              const yesterday = new Date(todayDate);
+              yesterday.setDate(yesterday.getDate() - 1);
+              const yesterdayStr = yesterday.toISOString().split('T')[0];
+              const tomorrow = new Date(todayDate);
+              tomorrow.setDate(tomorrow.getDate() + 1);
+              const tomorrowStr = tomorrow.toISOString().split('T')[0];
+              
+              const formattedDate = new Date(selectedDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+              
+              if (selectedDate === todayStr) return `Today, ${formattedDate}`;
+              if (selectedDate === yesterdayStr) return `Yesterday, ${formattedDate}`;
+              if (selectedDate === tomorrowStr) return `Tomorrow, ${formattedDate}`;
+              
+              return new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+            })()}
+          </Text>
           <View style={styles.headerIcons}>
-            {hcSupported && (
+            {hcSupported && selectedDate === new Date().toISOString().split('T')[0] && (
               <Pressable
                 style={[styles.dateBadge, isRefreshingHC && { opacity: 0.5 }]}
                 onPress={handleRefreshHC}
@@ -725,10 +775,10 @@ export default function HomeScreen() {
                 <Ionicons name="sync" size={14} color={isDark ? '#94A3B8' : '#64748B'} />
               </Pressable>
             )}
-            <View style={styles.dateBadge}>
+            <Pressable style={styles.dateBadge} onPress={() => setCalendarVisible(true)}>
               <Ionicons name="calendar-outline" size={14} color={isDark ? '#94A3B8' : '#64748B'} />
-              <Text style={[styles.dayBadgeText, { color: isDark ? '#94A3B8' : '#64748B' }]}>DAY 1</Text>
-            </View>
+              <Text style={[styles.dayBadgeText, { color: isDark ? '#94A3B8' : '#64748B' }]}>DAY {dayNumber}</Text>
+            </Pressable>
           </View>
         </View>
 
@@ -814,11 +864,21 @@ export default function HomeScreen() {
         }}
         isSaving={isSaving}
       />
-      
       <OnboardingModal
         visible={showOnboarding}
         onSave={handleSaveProfile}
-        onSkip={handleSkipOnboarding}
+        onSkip={() => setShowOnboarding(false)}
+      />
+
+      <CalendarModal
+        visible={calendarVisible}
+        selectedDate={selectedDate}
+        userId={userId}
+        onClose={() => setCalendarVisible(false)}
+        onSelectDate={(dateStr) => {
+          setSelectedDate(dateStr);
+          setCalendarVisible(false);
+        }}
       />
     </SafeAreaView>
   );

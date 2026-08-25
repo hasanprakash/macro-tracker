@@ -188,7 +188,7 @@ function RootContent() {
         </View>
 
         <Text style={[styles.title, { color: isDark ? "#F8FAFC" : "#0F172A" }]}>
-          Macro Tracker
+          Day Fuel
         </Text>
         <Text
           style={[styles.subtitle, { color: isDark ? "#94A3B8" : "#64748B" }]}

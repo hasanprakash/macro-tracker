@@ -39,19 +39,23 @@ Deno.serve(async (req) => {
       );
     }
 
-    // ── Fetch User's Assigned AI Model ───────────────────────────────
+    // ── Fetch User's Assigned AI Model & Settings ────────────────────
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
     
     let aiModel = 'gemini-3.6-flash'; // Safe fallback
+    let customApiKey = null;
     const { data: modelData } = await supabaseAdmin
-      .from('user_ai_models')
-      .select('ai_model')
+      .from('user_ai_settings')
+      .select('ai_model, custom_api_key')
       .eq('user_id', user.id)
       .single();
       
     if (modelData?.ai_model) {
       aiModel = modelData.ai_model;
+    }
+    if (modelData?.custom_api_key) {
+      customApiKey = modelData.custom_api_key;
     }
 
     const body = await req.json();
@@ -95,7 +99,7 @@ Return ONLY a JSON object with 'title' (string), 'activity_code' (string) and 'd
       required: ["title", "activity_code", "duration_minutes"]
     };
 
-    const apiKey = Deno.env.get('GEMINI_API_KEY');
+    const apiKey = customApiKey || Deno.env.get('GEMINI_API_KEY');
     if (!apiKey) {
       throw new Error("Missing GEMINI_API_KEY");
     }
