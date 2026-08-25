@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, TextInput, Pressable } from 'react-native';
+import { StyleSheet, Text, View, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useAlert } from '@/components/ui/CustomAlert';
+import { OnboardingModal } from '@/components/OnboardingModal';
 import type { Profile } from '@/lib/types';
 
 export default function SettingsScreen() {
@@ -19,65 +20,24 @@ export default function SettingsScreen() {
   const bgSurface = isDark ? '#1E293B' : '#FFFFFF';
   const borderColor = isDark ? '#334155' : '#E2E8F0';
 
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [strideCm, setStrideCm] = useState('');
-  const [fiveKmDistance, setFiveKmDistance] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [onboardingVisible, setOnboardingVisible] = useState(false);
 
-  useEffect(() => {
-    fetchProfile();
-  }, []);
-
-  const fetchProfile = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const { data } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single();
-
-    if (data) {
-      setProfile(data);
-      if (data.stride_length_cm) {
-        setStrideCm(data.stride_length_cm.toString());
-      }
-    }
-  };
-
-  const calculateAndSetStride = (kmDistanceStr: string) => {
-    setFiveKmDistance(kmDistanceStr);
-    const km = parseFloat(kmDistanceStr);
-    if (!isNaN(km) && km > 0) {
-      // 5000 steps = X km
-      // 1 step = X km / 5000 = (X * 1000) m / 5000 = (X * 1000 * 100) cm / 5000
-      const cm = (km * 100000) / 5000;
-      setStrideCm(Math.round(cm).toString());
-    }
-  };
-
-  const handleSave = async () => {
-    if (!profile) return;
-    setSaving(true);
-    
-    const parsedStride = parseInt(strideCm, 10);
-    const strideToSave = isNaN(parsedStride) ? null : parsedStride;
-
+  const handleSaveOnboarding = async (profileData: Partial<Profile>) => {
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      
       const { error } = await supabase
         .from('profiles')
-        .update({ stride_length_cm: strideToSave })
-        .eq('id', profile.id);
-      
+        .update(profileData)
+        .eq('id', user.id);
+        
       if (error) throw error;
       
-      showAlert('Success', 'Settings saved successfully');
-      router.back();
-    } catch (error: any) {
-      showAlert('Error', error.message);
-    } finally {
-      setSaving(false);
+      showAlert('Success', 'Goals updated successfully');
+      setOnboardingVisible(false);
+    } catch (e: any) {
+      showAlert('Error', e.message);
     }
   };
 
@@ -91,54 +51,51 @@ export default function SettingsScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      <View style={[styles.section, { backgroundColor: bgSurface, borderColor }]}>
-        <Text style={[styles.sectionTitle, { color: textPrimary }]}>Walking Settings</Text>
-        <Text style={[styles.sectionDesc, { color: textSecondary }]}>
-          Your stride length is used to estimate distance and calories burned from your daily steps.
-        </Text>
-
-        <View style={styles.inputGroup}>
-          <Text style={[styles.label, { color: textPrimary }]}>Average walking stride (cm)</Text>
-          <TextInput
-            style={[styles.input, { color: textPrimary, borderColor, backgroundColor: isDark ? '#0F172A' : '#F1F5F9' }]}
-            value={strideCm}
-            onChangeText={(text) => {
-              setStrideCm(text);
-              setFiveKmDistance(''); // clear distance if they edit stride directly
-            }}
-            keyboardType="numeric"
-            placeholder="e.g. 74"
-            placeholderTextColor={textSecondary}
-          />
+      <ScrollView contentContainerStyle={styles.content}>
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: textSecondary }]}>ACCOUNT & GOALS</Text>
+          
+          <View style={[styles.card, { backgroundColor: bgSurface, borderColor }]}>
+            <Pressable 
+              style={styles.listItem}
+              onPress={() => setOnboardingVisible(true)}
+            >
+              <View style={styles.listItemLeft}>
+                <View style={[styles.iconContainer, { backgroundColor: 'rgba(99, 102, 241, 0.15)' }]}>
+                  <Ionicons name="flame-outline" size={20} color="#6366F1" />
+                </View>
+                <View>
+                  <Text style={[styles.listItemTitle, { color: textPrimary }]}>Nutrition Goals</Text>
+                  <Text style={[styles.listItemSubtitle, { color: textSecondary }]}>Set your target calories and macros</Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={textSecondary} />
+            </Pressable>
+            
+            <View style={[styles.divider, { backgroundColor: borderColor }]} />
+            
+            <Pressable 
+              style={styles.listItem}
+              onPress={() => supabase.auth.signOut()}
+            >
+              <View style={styles.listItemLeft}>
+                <View style={[styles.iconContainer, { backgroundColor: 'rgba(239, 68, 68, 0.15)' }]}>
+                  <Ionicons name="log-out-outline" size={20} color="#EF4444" />
+                </View>
+                <View>
+                  <Text style={[styles.listItemTitle, { color: '#EF4444' }]}>Log Out</Text>
+                </View>
+              </View>
+            </Pressable>
+          </View>
         </View>
+      </ScrollView>
 
-        <View style={styles.divider}>
-          <Text style={[styles.dividerText, { color: textSecondary, backgroundColor: bgSurface }]}>OR</Text>
-        </View>
-
-        <View style={styles.inputGroup}>
-          <Text style={[styles.label, { color: textPrimary }]}>Typical 5,000-step distance (km)</Text>
-          <TextInput
-            style={[styles.input, { color: textPrimary, borderColor, backgroundColor: isDark ? '#0F172A' : '#F1F5F9' }]}
-            value={fiveKmDistance}
-            onChangeText={calculateAndSetStride}
-            keyboardType="numeric"
-            placeholder="e.g. 3.7"
-            placeholderTextColor={textSecondary}
-          />
-          <Text style={[styles.helperText, { color: textSecondary }]}>
-            We will automatically calculate your stride from this distance.
-          </Text>
-        </View>
-
-        <Pressable 
-          style={[styles.saveButton, saving && styles.saveButtonDisabled]} 
-          onPress={handleSave}
-          disabled={saving}
-        >
-          <Text style={styles.saveButtonText}>{saving ? 'Saving...' : 'Save Settings'}</Text>
-        </Pressable>
-      </View>
+      <OnboardingModal
+        visible={onboardingVisible}
+        onSave={handleSaveOnboarding}
+        onSkip={() => setOnboardingVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -164,68 +121,52 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
   },
-  section: {
-    margin: 16,
+  content: {
     padding: 16,
-    borderRadius: 16,
-    borderWidth: 1,
+  },
+  section: {
+    marginBottom: 24,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '700',
     marginBottom: 8,
+    marginLeft: 16,
+    letterSpacing: 0.5,
   },
-  sectionDesc: {
-    fontSize: 14,
-    marginBottom: 24,
-    lineHeight: 20,
-  },
-  inputGroup: {
-    marginBottom: 16,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '500',
-    marginBottom: 8,
-  },
-  input: {
+  card: {
+    borderRadius: 16,
     borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    fontSize: 16,
+    overflow: 'hidden',
   },
-  helperText: {
-    fontSize: 12,
-    marginTop: 6,
+  listItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+  },
+  listItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  iconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  listItemTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  listItemSubtitle: {
+    fontSize: 13,
+    marginTop: 2,
   },
   divider: {
     height: 1,
-    backgroundColor: '#E2E8F0',
-    marginVertical: 24,
-    position: 'relative',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dividerText: {
-    position: 'absolute',
-    paddingHorizontal: 8,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  saveButton: {
-    backgroundColor: '#3B82F6',
-    borderRadius: 8,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: 16,
-  },
-  saveButtonDisabled: {
-    opacity: 0.7,
-  },
-  saveButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
+    marginLeft: 68,
   },
 });

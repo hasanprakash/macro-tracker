@@ -39,6 +39,21 @@ Deno.serve(async (req) => {
       );
     }
 
+    // ── Fetch User's Assigned AI Model ───────────────────────────────
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+    
+    let aiModel = 'gemini-3.6-flash'; // Safe fallback
+    const { data: modelData } = await supabaseAdmin
+      .from('user_ai_models')
+      .select('ai_model')
+      .eq('user_id', user.id)
+      .single();
+      
+    if (modelData?.ai_model) {
+      aiModel = modelData.ai_model;
+    }
+
     const body = await req.json();
     const { text, weight = 70 } = body;
 
@@ -85,7 +100,7 @@ Return ONLY a JSON object with 'title' (string), 'activity_code' (string) and 'd
       throw new Error("Missing GEMINI_API_KEY");
     }
 
-    const geminiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent";
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${aiModel}:generateContent`;
     const response = await fetch(geminiUrl, {
       method: "POST",
       headers: {

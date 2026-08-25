@@ -72,7 +72,7 @@ export default function HomeScreen() {
   const [editingEntry, setEditingEntry] = useState<MealEntry | null>(null);
 
   const router = useRouter();
-  const { steps: hcSteps, activeCalories: hcActiveCalories, isSupported: hcSupported, fetchSteps } = useHealthConnect();
+  const { steps: hcSteps, activeCalories: hcActiveCalories, isSupported: hcSupported, error: hcError, fetchSteps } = useHealthConnect();
 
   const fetchDashboardData = useCallback(async (uid: string) => {
     const today = new Date().toISOString().split('T')[0];
@@ -634,7 +634,23 @@ export default function HomeScreen() {
     );
   }
 
-  const hcStepsEntry = hcSupported && hcSteps !== null && hcSteps > 0 ? (() => {
+  const hcStepsEntry = hcSupported && (hcSteps !== null || hcError) ? (() => {
+    if (hcError || hcSteps === null) {
+      return {
+        id: 'health-connect-steps',
+        user_id: userId || '',
+        exercise_date: new Date().toISOString().split('T')[0],
+        exercise_type: 'Steps',
+        description: 'Tap to connect',
+        duration_minutes: 0,
+        steps_count: -1,
+        calories_burned: 0,
+        created_at: new Date().toISOString(),
+        source: ExerciseSource.HEALTH_CONNECT,
+        calculation_method: CalculationMethod.HEALTH_PLATFORM,
+      } as ExerciseEntry;
+    }
+
     const strideCm = profile?.stride_length_cm || ((profile?.height_cm || 170) * 0.414);
     const distanceKm = hcSteps * (strideCm / 100) / 1000;
     
@@ -746,6 +762,7 @@ export default function HomeScreen() {
           entries={displayExercises}
           onAddPress={() => setAddExerciseVisible(true)}
           onDeleteEntry={handleDeleteExercise}
+          onStepsPress={() => fetchSteps(true)}
         />
 
         <WeightSection

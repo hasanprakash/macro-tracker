@@ -96,6 +96,12 @@ export function LogWeightModal({
               onChangeText={setWeightText}
               autoFocus
             />
+            <View style={styles.tipContainer}>
+              <Ionicons name="information-circle-outline" size={16} color={textSecondary} />
+              <Text style={[styles.tipText, { color: textSecondary }]}>
+                Tip: Track early morning before drinking water for best accuracy.
+              </Text>
+            </View>
           </View>
 
           <Pressable
@@ -158,6 +164,18 @@ const styles = StyleSheet.create({
     padding: 16,
     fontSize: 18,
     fontWeight: '600',
+  },
+  tipContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingHorizontal: 4,
+    gap: 6,
+  },
+  tipText: {
+    fontSize: 12,
+    fontStyle: 'italic',
+    flex: 1,
   },
   submitBtn: {
     paddingVertical: 16,

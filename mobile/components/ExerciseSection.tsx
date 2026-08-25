@@ -18,11 +18,12 @@ interface ExerciseSectionProps {
   entries: ExerciseEntry[];
   onAddPress: () => void;
   onDeleteEntry: (entry: ExerciseEntry) => void;
+  onStepsPress?: () => void;
 }
 
 const MAX_HEIGHT = 800;
 
-export function ExerciseSection({ entries, onAddPress, onDeleteEntry }: ExerciseSectionProps) {
+export function ExerciseSection({ entries, onAddPress, onDeleteEntry, onStepsPress }: ExerciseSectionProps) {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
   const [expanded, setExpanded] = React.useState(true); // default open
@@ -96,10 +97,16 @@ export function ExerciseSection({ entries, onAddPress, onDeleteEntry }: Exercise
                 <Text style={[styles.sectionTitle, { color: textSecondary }]}>Daily movement</Text>
                 {entries.filter(e => e.exercise_type === 'Steps').map((entry) => (
 
-                    <View key={entry.id} style={[styles.entryRow, { backgroundColor: entryBg }]}>
+                    <TouchableOpacity 
+                      key={entry.id} 
+                      style={[styles.entryRow, { backgroundColor: entryBg }]}
+                      activeOpacity={0.7}
+                      onPress={onStepsPress}
+                      disabled={!onStepsPress}
+                    >
                       <View style={styles.entryInfo}>
                         <Text style={[styles.entryName, { color: textPrimary }]}>
-                          {entry.steps_count} Steps
+                          {entry.steps_count >= 0 ? `${entry.steps_count.toLocaleString()} Steps` : 'Steps Not Available'}
                         </Text>
                         {entry.description && (
                           <Text style={[styles.entryMacros, { color: textSecondary }]}>
@@ -112,7 +119,7 @@ export function ExerciseSection({ entries, onAddPress, onDeleteEntry }: Exercise
                           ~{Math.round(entry.calories_burned)} kcal
                         </Text>
                       </View>
-                    </View>
+                    </TouchableOpacity>
 
                 ))}
               </>
