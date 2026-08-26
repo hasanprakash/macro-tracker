@@ -67,7 +67,7 @@ export function MealSection({ title, icon, color, entries, onAddPress, onDeleteE
           <Text style={[styles.title, { color: textPrimary }]}>{title}</Text>
           {totalCalories > 0 && (
             <Text style={[styles.totalCal, { color: textSecondary }]}>
-              {Math.round(totalCalories)} kcal
+              ~{Math.round(totalCalories)} kcal
             </Text>
           )}
           <Animated.View style={chevronStyle}>
@@ -122,7 +122,7 @@ export function MealSection({ title, icon, color, entries, onAddPress, onDeleteE
                   </View>
                   <View style={styles.entryRowRight}>
                     <Text style={[styles.entryCal, { color: textPrimary }]}>
-                      {Math.round(entry.calories || 0)} kcal
+                      ~{Math.round(entry.calories || 0)} kcal
                     </Text>
                     <Ionicons name="chevron-forward" size={14} color={textSecondary} style={{ marginLeft: 4 }} />
                   </View>

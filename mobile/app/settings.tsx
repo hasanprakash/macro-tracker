@@ -8,6 +8,9 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useAlert } from '@/components/ui/CustomAlert';
 import { OnboardingModal } from '@/components/OnboardingModal';
 import { BYOKModal } from '@/components/BYOKModal';
+import { TipsModal } from '@/components/TipsModal';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing, withSequence } from 'react-native-reanimated';
 import type { Profile } from '@/lib/types';
 
 export default function SettingsScreen() {
@@ -23,11 +26,50 @@ export default function SettingsScreen() {
 
   const [onboardingVisible, setOnboardingVisible] = useState(false);
   const [byokVisible, setByokVisible] = useState(false);
+  const [tipsVisible, setTipsVisible] = useState(false);
+  const [hasSeenTips, setHasSeenTips] = useState(true);
   const [aiSettings, setAiSettings] = useState({ byok_enabled: false, has_custom_key: false });
+
+  const pulseAnim = useSharedValue(1);
 
   useEffect(() => {
     fetchAiSettings();
+    loadTipsState();
   }, []);
+
+  useEffect(() => {
+    if (!hasSeenTips) {
+      pulseAnim.value = withRepeat(
+        withSequence(
+          withTiming(1.2, { duration: 800, easing: Easing.inOut(Easing.ease) }),
+          withTiming(1, { duration: 800, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1,
+        true
+      );
+    } else {
+      pulseAnim.value = 1;
+    }
+  }, [hasSeenTips]);
+
+  const loadTipsState = async () => {
+    try {
+      const value = await AsyncStorage.getItem('has_seen_tips');
+      setHasSeenTips(value === 'true');
+    } catch (e) {}
+  };
+
+  const handleOpenTips = async () => {
+    setTipsVisible(true);
+    if (!hasSeenTips) {
+      setHasSeenTips(true);
+      await AsyncStorage.setItem('has_seen_tips', 'true');
+    }
+  };
+
+  const glowingStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pulseAnim.value }],
+  }));
 
   const fetchAiSettings = async () => {
     try {
@@ -108,6 +150,34 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: textSecondary }]}>HELP & RESOURCES</Text>
+          
+          <View style={[styles.card, { backgroundColor: bgSurface, borderColor }]}>
+            <Pressable 
+              style={styles.listItem}
+              onPress={handleOpenTips}
+            >
+              <View style={styles.listItemLeft}>
+                <View style={[styles.iconContainer, { backgroundColor: 'rgba(234, 179, 8, 0.15)' }]}>
+                  {!hasSeenTips ? (
+                    <Animated.View style={glowingStyle}>
+                      <Ionicons name="bulb" size={20} color="#EAB308" />
+                    </Animated.View>
+                  ) : (
+                    <Ionicons name="bulb-outline" size={20} color="#EAB308" />
+                  )}
+                </View>
+                <View>
+                  <Text style={[styles.listItemTitle, { color: textPrimary }]}>Health & Tracking Tips</Text>
+                  <Text style={[styles.listItemSubtitle, { color: textSecondary }]}>Best practices for your goals</Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={textSecondary} />
+            </Pressable>
+          </View>
+        </View>
+
         {aiSettings.byok_enabled && (
           <View style={styles.section}>
             <Text style={[styles.sectionTitle, { color: textSecondary }]}>AI FEATURES</Text>
@@ -146,6 +216,11 @@ export default function SettingsScreen() {
         hasCustomKey={aiSettings.has_custom_key}
         onClose={() => setByokVisible(false)}
         onSaveSuccess={fetchAiSettings}
+      />
+
+      <TipsModal 
+        visible={tipsVisible} 
+        onClose={() => setTipsVisible(false)} 
       />
     </SafeAreaView>
   );

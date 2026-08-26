@@ -5,6 +5,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '@/lib/supabase';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Ionicons } from '@expo/vector-icons';
+import { CombinedChart } from '@/components/CombinedChart';
 
 const { width } = Dimensions.get('window');
 
@@ -53,21 +54,19 @@ export default function AnalyticsScreen() {
         setTargetFat(profile.target_fat || 65);
       }
 
-      // Fetch last 7 days summaries
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      // Fetch last 30 days summaries (so we have data for the dynamic window)
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       const { data: summaryData } = await supabase
         .from('daily_summaries')
         .select('*')
         .eq('user_id', user.id)
-        .gte('summary_date', sevenDaysAgo.toISOString().split('T')[0])
+        .gte('summary_date', thirtyDaysAgo.toISOString().split('T')[0])
         .order('summary_date', { ascending: true });
       
       setSummaries(summaryData || []);
 
       // Fetch weight logs
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       const { data: weightData } = await supabase
         .from('weight_logs')
         .select('*')
@@ -98,23 +97,58 @@ export default function AnalyticsScreen() {
   const textPrimary = isDark ? '#F8FAFC' : '#0F172A';
   const textSecondary = isDark ? '#94A3B8' : '#64748B';
 
-  // Format summaries into last 7 days array
-  const last7Days = Array.from({ length: 7 }).map((_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() - (6 - i));
+  // --- Dynamic Window Logic ---
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  let oldestLogDate = new Date();
+  
+  if (summaries.length > 0) {
+    const firstSummaryDate = new Date(summaries[0].summary_date);
+    if (firstSummaryDate < oldestLogDate) oldestLogDate = firstSummaryDate;
+  }
+  
+  if (weightLogs.length > 0) {
+    const firstWeightDate = new Date(weightLogs[0].recorded_at.split('T')[0]);
+    if (firstWeightDate < oldestLogDate) oldestLogDate = firstWeightDate;
+  }
+
+  const daysSinceFirstLog = Math.floor((today.getTime() - oldestLogDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+  const chartDaysCount = Math.max(7, Math.min(30, daysSinceFirstLog));
+
+  // Format combined data
+  const combinedData = Array.from({ length: chartDaysCount }).map((_, i) => {
+    const d = new Date(today);
+    d.setDate(d.getDate() - (chartDaysCount - 1 - i));
     const dateStr = d.toISOString().split('T')[0];
-    const shortDay = d.toLocaleDateString('en-US', { weekday: 'short' });
-    const match = summaries.find(s => s.summary_date === dateStr);
+    const shortDay = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    
+    const summaryMatch = summaries.find(s => s.summary_date === dateStr);
+    
+    // Weight forward-fill
+    let weightForDay = null;
+    let latestBeforeDate = -1;
+    
+    for (const w of weightLogs) {
+      const wDate = new Date(w.recorded_at.split('T')[0]).getTime();
+      if (wDate <= d.getTime() && wDate > latestBeforeDate) {
+        latestBeforeDate = wDate;
+        weightForDay = Number(w.weight);
+      }
+    }
+
     return {
       date: dateStr,
       label: shortDay,
-      calories: match ? Number(match.total_calories) : 0,
-      protein: match ? Number(match.total_protein) : 0,
-      carbs: match ? Number(match.total_carbs) : 0,
-      fat: match ? Number(match.total_fat) : 0,
+      calories: summaryMatch ? Number(summaryMatch.total_calories) : 0,
+      protein: summaryMatch ? Number(summaryMatch.total_protein) : 0,
+      carbs: summaryMatch ? Number(summaryMatch.total_carbs) : 0,
+      fat: summaryMatch ? Number(summaryMatch.total_fat) : 0,
+      weight: weightForDay,
     };
   });
 
+  const last7Days = combinedData.slice(-7);
   const maxCal = Math.max(targetCalories, ...last7Days.map(d => d.calories)) * 1.1 || 2500;
   
   // Averages based only on days logged
@@ -138,7 +172,13 @@ export default function AnalyticsScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={textPrimary} />}
       >
         <View style={styles.header}>
-          <Text style={[styles.title, { color: textPrimary }]}>Analytics</Text>
+          <Text style={[styles.title, { color: textPrimary }]}>Insights</Text>
+        </View>
+
+        {/* Combined Line Chart */}
+        <View style={[styles.card, { backgroundColor: cardBg }]}>
+          <Text style={[styles.cardTitle, { color: textPrimary }]}>Progress Overview ({chartDaysCount} Days)</Text>
+          <CombinedChart data={combinedData} targetCalories={targetCalories} isDark={isDark} />
         </View>
 
         {/* Calories Chart */}
@@ -169,7 +209,7 @@ export default function AnalyticsScreen() {
               );
             })}
             {/* Target Line */}
-            <View style={[styles.targetLine, { bottom: `${(targetCalories / maxCal) * 100}%` + 22, borderColor: textSecondary }]} />
+            <View style={[styles.targetLine, { bottom: `${(targetCalories / maxCal) * 100}%`, borderColor: textSecondary }]} />
           </View>
           <View style={styles.chartLegend}>
             <View style={styles.legendItem}>

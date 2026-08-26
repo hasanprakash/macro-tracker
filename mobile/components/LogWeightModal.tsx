@@ -91,7 +91,7 @@ export function LogWeightModal({
               style={[styles.textInput, { backgroundColor: inputBg, color: textPrimary, borderColor }]}
               placeholder="e.g. 70.5"
               placeholderTextColor={textSecondary}
-              keyboardType="numeric"
+              keyboardType="decimal-pad"
               value={weightText}
               onChangeText={setWeightText}
               autoFocus

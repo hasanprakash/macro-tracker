@@ -145,9 +145,9 @@ export function ExerciseSection({ entries, onAddPress, onDeleteEntry, onStepsPre
                     <View style={[styles.entryRow, { backgroundColor: entryBg }]}>
                       <View style={styles.entryInfo}>
                         <Text style={[styles.entryName, { color: textPrimary }]}>
-                          {entry.title || entry.exercise_type}
+                          {entry.exercise_type}
                         </Text>
-                        {entry.description && entry.description !== entry.title && (
+                        {entry.description && (
                           <Text style={[styles.entryDesc, { color: textSecondary }]} numberOfLines={1}>
                             {entry.description}
                           </Text>

@@ -14,7 +14,7 @@ import { useRouter } from 'expo-router';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { supabase } from '@/lib/supabase';
-import type { FoodItem, MealEstimate, MealTotals, MealEntry, RecentFood, Profile, ExerciseEntry } from '@/lib/types';
+import type { FoodItem, MealEstimate, MealTotals, MealEntry, RecentFood, Profile, ExerciseEntry, WeightLog } from '@/lib/types';
 import { ExerciseSource, CalculationMethod } from '@/lib/constants';
 
 import { DailySummaryCard } from '@/components/DailySummaryCard';
@@ -390,7 +390,7 @@ export default function HomeScreen() {
       if (error) throw error;
     } catch (err: any) {
       showAlert('Delete Failed', err.message);
-      if (userId) fetchDashboardData(userId);
+      if (userId) fetchDashboardData(userId, selectedDate);
     }
   };
 
@@ -486,7 +486,7 @@ export default function HomeScreen() {
       setReviewVisible(false);
       setEstimate(null);
       setEditingEntry(null);
-      if (userId) fetchDashboardData(userId);
+      if (userId) fetchDashboardData(userId, selectedDate);
     } catch (err: any) {
       showAlert(
         editingEntry ? 'Update Failed' : 'Save Failed',
@@ -514,10 +514,11 @@ export default function HomeScreen() {
       });
 
       if (error) throw error;
+      if (userId) fetchDashboardData(userId, selectedDate);
     } catch (err: any) {
       showAlert('Delete Failed', err.message || 'Could not delete entry.');
       // Re-fetch to rollback/sync local state if RPC failed
-      if (userId) fetchDashboardData(userId);
+      if (userId) fetchDashboardData(userId, selectedDate);
     }
   };
 

@@ -14,6 +14,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import type { Profile } from '@/lib/types';
+import { TipsModal } from '@/components/TipsModal';
 
 interface OnboardingModalProps {
   visible: boolean;
@@ -29,6 +30,7 @@ export function OnboardingModal({ visible, onSave, onSkip }: OnboardingModalProp
 
   const [step, setStep] = useState<Step>('intro');
   const [isSaving, setIsSaving] = useState(false);
+  const [tipsVisible, setTipsVisible] = useState(false);
 
   // Form State
   const [age, setAge] = useState('');
@@ -170,6 +172,50 @@ export function OnboardingModal({ visible, onSave, onSkip }: OnboardingModalProp
     return true;
   };
 
+  const getStepNumber = () => {
+    switch (step) {
+      case 'intro': return 1;
+      case 'age-gender': return 2;
+      case 'height-weight': return 3;
+      case 'goal': return 4;
+      case 'target-weight': return 5;
+      case 'review': return 6;
+      default: return 1;
+    }
+  };
+
+  const stepNumber = getStepNumber();
+  const totalSteps = goal === 'Lose weight' || goal === 'Gain weight' ? 6 : 5;
+  const progressPercent = (stepNumber / totalSteps) * 100;
+
+  const bmrInfoText = () => {
+    if (goal === 'Just track my food') return null;
+
+    let targetDiff = 0;
+    if (goal === 'Lose weight') targetDiff = parseFloat(maintenanceCalories) - parseFloat(targetCalories);
+    else if (goal === 'Gain weight') targetDiff = parseFloat(targetCalories) - parseFloat(maintenanceCalories);
+    
+    // approx 7700 kcal per kg of body fat. So weekly diff = targetDiff * 7
+    // weekly weight change = (targetDiff * 7) / 7700 = targetDiff / 1100
+    const weeklyChange = (targetDiff / 1100).toFixed(2);
+    const actionStr = goal === 'Lose weight' ? 'lose' : (goal === 'Gain weight' ? 'gain' : 'maintain');
+
+    return (
+      <View style={[styles.infoBox, { backgroundColor: 'rgba(59, 130, 246, 0.1)' }]}>
+        <Ionicons name="information-circle" size={24} color="#3B82F6" style={{ marginTop: 2 }} />
+        <View style={{ flex: 1, marginLeft: 12 }}>
+          <Text style={[styles.infoTitle, { color: textPrimary }]}>BMR Estimate</Text>
+          <Text style={[styles.infoText, { color: textSecondary }]}>
+            Everyone's Basal Metabolic Rate (BMR) varies. Based on these calculated targets, we estimate you will {actionStr} <Text style={{ fontWeight: '600', color: textPrimary }}>~{weeklyChange} kg</Text> per week. 
+          </Text>
+          <Text style={[styles.infoText, { color: textSecondary, marginTop: 8 }]}>
+            We will adjust your calorie targets as you progress toward your accurate BMR. Please note that BMR can be affected negatively by poor health and under-eating, and positively by gaining muscle mass.
+          </Text>
+        </View>
+      </View>
+    );
+  };
+
   const renderIntro = () => (
     <View style={styles.stepContainer}>
       <Text style={[styles.emoji, { fontSize: 48, textAlign: 'center' }]}>🎯</Text>
@@ -237,7 +283,7 @@ export function OnboardingModal({ visible, onSave, onSkip }: OnboardingModalProp
       <Text style={[styles.label, { color: textPrimary, marginTop: 24 }]}>Height (cm)</Text>
       <TextInput
         style={[styles.input, { backgroundColor: inputBg, color: textPrimary, borderColor }]}
-        keyboardType="numeric"
+        keyboardType="decimal-pad"
         placeholder="e.g. 175"
         placeholderTextColor={textSecondary}
         value={height}
@@ -247,7 +293,7 @@ export function OnboardingModal({ visible, onSave, onSkip }: OnboardingModalProp
       <Text style={[styles.label, { color: textPrimary, marginTop: 24 }]}>Current Weight (kg)</Text>
       <TextInput
         style={[styles.input, { backgroundColor: inputBg, color: textPrimary, borderColor }]}
-        keyboardType="numeric"
+        keyboardType="decimal-pad"
         placeholder="e.g. 70"
         placeholderTextColor={textSecondary}
         value={weight}
@@ -255,8 +301,6 @@ export function OnboardingModal({ visible, onSave, onSkip }: OnboardingModalProp
       />
     </View>
   );
-
-
 
   const renderGoal = () => (
     <View style={styles.stepContainer}>
@@ -287,7 +331,7 @@ export function OnboardingModal({ visible, onSave, onSkip }: OnboardingModalProp
       <Text style={[styles.label, { color: textPrimary, marginTop: 24 }]}>Target Weight (kg)</Text>
       <TextInput
         style={[styles.input, { backgroundColor: inputBg, color: textPrimary, borderColor }]}
-        keyboardType="numeric"
+        keyboardType="decimal-pad"
         placeholder={`Current: ${weight} kg`}
         placeholderTextColor={textSecondary}
         value={targetWeight}
@@ -307,72 +351,74 @@ export function OnboardingModal({ visible, onSave, onSkip }: OnboardingModalProp
     <View style={styles.stepContainer}>
       <Text style={[styles.title, { color: textPrimary }]}>Your Targets</Text>
       <Text style={[styles.subtitle, { color: textSecondary }]}>
-        Here are your calculated daily targets. You can tweak them manually if you prefer.
+        Here are your calculated daily targets.
       </Text>
       
-      <View style={{ marginTop: 24, gap: 16 }}>
-        <View style={styles.targetRow}>
-          <Text style={[styles.targetLabel, { color: textPrimary }]}>🔥 Calories (kcal)</Text>
-          <TextInput
-            style={[styles.targetInput, { backgroundColor: inputBg, color: textPrimary, borderColor }]}
-            keyboardType="numeric"
-            value={targetCalories}
-            onChangeText={setTargetCalories}
-          />
+      <View style={styles.reviewGrid}>
+        <View style={[styles.reviewCard, { backgroundColor: inputBg, borderColor }]}>
+          <Text style={[styles.reviewValue, { color: '#6366F1' }]}>{targetCalories}</Text>
+          <Text style={[styles.reviewLabel, { color: textSecondary }]}>Calories</Text>
         </View>
-        <View style={styles.targetRow}>
-          <Text style={[styles.targetLabel, { color: textPrimary }]}>🥩 Protein (g)</Text>
-          <TextInput
-            style={[styles.targetInput, { backgroundColor: inputBg, color: textPrimary, borderColor }]}
-            keyboardType="numeric"
-            value={targetProtein}
-            onChangeText={setTargetProtein}
-          />
+        <View style={[styles.reviewCard, { backgroundColor: inputBg, borderColor }]}>
+          <Text style={[styles.reviewValue, { color: '#F43F5E' }]}>{targetProtein}g</Text>
+          <Text style={[styles.reviewLabel, { color: textSecondary }]}>Protein</Text>
         </View>
-        <View style={styles.targetRow}>
-          <Text style={[styles.targetLabel, { color: textPrimary }]}>🥑 Fat (g)</Text>
-          <TextInput
-            style={[styles.targetInput, { backgroundColor: inputBg, color: textPrimary, borderColor }]}
-            keyboardType="numeric"
-            value={targetFat}
-            onChangeText={setTargetFat}
-          />
+        <View style={[styles.reviewCard, { backgroundColor: inputBg, borderColor }]}>
+          <Text style={[styles.reviewValue, { color: '#60A5FA' }]}>{targetCarbs}g</Text>
+          <Text style={[styles.reviewLabel, { color: textSecondary }]}>Carbs</Text>
         </View>
-        <View style={styles.targetRow}>
-          <Text style={[styles.targetLabel, { color: textPrimary }]}>🍚 Carbs (g)</Text>
-          <TextInput
-            style={[styles.targetInput, { backgroundColor: inputBg, color: textPrimary, borderColor }]}
-            keyboardType="numeric"
-            value={targetCarbs}
-            onChangeText={setTargetCarbs}
-          />
+        <View style={[styles.reviewCard, { backgroundColor: inputBg, borderColor }]}>
+          <Text style={[styles.reviewValue, { color: '#FBBF24' }]}>{targetFat}g</Text>
+          <Text style={[styles.reviewLabel, { color: textSecondary }]}>Fat</Text>
+        </View>
+        <View style={[styles.reviewCard, { backgroundColor: inputBg, borderColor }]}>
+          <Text style={[styles.reviewValue, { color: '#10B981' }]}>{targetSteps}</Text>
+          <Text style={[styles.reviewLabel, { color: textSecondary }]}>Steps/Day</Text>
         </View>
       </View>
-      
-      <View style={[styles.infoBox, { backgroundColor: buttonBg, borderColor }]}>
-        <Ionicons name="information-circle-outline" size={20} color={textSecondary} />
-        <Text style={[styles.infoText, { color: textSecondary }]}>
-          These use a baseline "sedentary" activity multiplier. You can change these anytime in your profile!
-        </Text>
-      </View>
+
+      {bmrInfoText()}
     </View>
   );
 
   return (
-    <Modal visible={visible} transparent animationType="slide">
-      <KeyboardAvoidingView
+    <Modal visible={visible} animationType="slide" transparent>
+      <KeyboardAvoidingView 
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.overlay}
       >
         <View style={[styles.modalContent, { backgroundColor: cardBg }]}>
+          
+          <View style={styles.header}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              {step !== 'intro' && (
+                <Pressable onPress={handleBack} style={{ padding: 4, marginLeft: -4 }}>
+                  <Ionicons name="arrow-back" size={24} color={textPrimary} />
+                </Pressable>
+              )}
+              <Text style={[styles.title, { color: textPrimary }]}>
+                {step === 'review' ? 'Your Goals' : 'Nutrition Goals'}
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              {step === 'review' && (
+                <Pressable onPress={() => setTipsVisible(true)} style={{ padding: 4 }}>
+                  <Ionicons name="bulb-outline" size={24} color="#EAB308" />
+                </Pressable>
+              )}
+              <Pressable onPress={onSkip} style={{ padding: 4 }}>
+                <Ionicons name="close" size={24} color={textSecondary} />
+              </Pressable>
+            </View>
+          </View>
+
+          {/* Progress Bar */}
           {step !== 'intro' && (
-            <View style={styles.header}>
-              <Pressable onPress={handleBack} style={styles.iconBtn}>
-                <Ionicons name="arrow-back" size={24} color={textPrimary} />
-              </Pressable>
-              <Pressable onPress={onSkip} style={styles.skipBtn}>
-                <Text style={[styles.skipText, { color: textSecondary }]}>Skip</Text>
-              </Pressable>
+            <View style={styles.progressContainer}>
+              <Text style={[styles.progressText, { color: textSecondary }]}>Step {stepNumber} of {totalSteps}</Text>
+              <View style={[styles.progressBarBg, { backgroundColor: isDark ? '#334155' : '#E2E8F0' }]}>
+                <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
+              </View>
             </View>
           )}
 
@@ -380,7 +426,6 @@ export function OnboardingModal({ visible, onSave, onSkip }: OnboardingModalProp
             {step === 'intro' && renderIntro()}
             {step === 'age-gender' && renderAgeGender()}
             {step === 'height-weight' && renderHeightWeight()}
-
             {step === 'goal' && renderGoal()}
             {step === 'target-weight' && renderTargetWeight()}
             {step === 'review' && renderReview()}
@@ -409,6 +454,8 @@ export function OnboardingModal({ visible, onSave, onSkip }: OnboardingModalProp
           )}
         </View>
       </KeyboardAvoidingView>
+
+      <TipsModal visible={tipsVisible} onClose={() => setTipsVisible(false)} />
     </Modal>
   );
 }
@@ -429,20 +476,32 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 24,
+  },
+  progressContainer: {
     marginBottom: 16,
   },
-  iconBtn: {
-    padding: 4,
-  },
-  skipBtn: {
-    padding: 8,
-  },
-  skipText: {
-    fontSize: 14,
+  progressText: {
+    fontSize: 12,
     fontWeight: '600',
+    marginBottom: 6,
+  },
+  progressBarBg: {
+    height: 6,
+    borderRadius: 3,
+    width: '100%',
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: '#6366F1',
+    borderRadius: 3,
+  },
+  emoji: {
+    fontSize: 48,
+    textAlign: 'center',
   },
   stepContainer: {
-    paddingTop: 8,
     paddingBottom: 24,
   },
   title: {
@@ -493,38 +552,43 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '700',
   },
-  targetRow: {
+  reviewGrid: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginTop: 24,
+  },
+  reviewCard: {
+    flex: 1,
+    minWidth: '45%',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
     alignItems: 'center',
   },
-  targetLabel: {
-    fontSize: 16,
-    fontWeight: '600',
+  reviewValue: {
+    fontSize: 22,
+    fontWeight: '800',
+    marginBottom: 4,
   },
-  targetInput: {
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 16,
-    fontWeight: '700',
-    textAlign: 'center',
-    width: 100,
+  reviewLabel: {
+    fontSize: 13,
+    fontWeight: '500',
   },
   infoBox: {
     flexDirection: 'row',
     padding: 16,
     borderRadius: 12,
-    borderWidth: 1,
     marginTop: 24,
-    gap: 12,
-    alignItems: 'center',
+  },
+  infoTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
   },
   infoText: {
-    flex: 1,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 14,
+    lineHeight: 20,
   },
   errorText: {
     color: '#EF4444',
