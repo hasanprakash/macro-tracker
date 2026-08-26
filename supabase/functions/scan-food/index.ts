@@ -1,4 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
+import { Redis } from "https://esm.sh/@upstash/redis@1.28.3";
+import { Ratelimit } from "https://esm.sh/@upstash/ratelimit@1.0.1";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -109,6 +111,54 @@ Deno.serve(async (req) => {
     }
     if (modelData?.custom_api_key) {
       customApiKey = modelData.custom_api_key;
+    }
+
+    // ── Rate Limiting (Upstash Redis) ────────────────────────────────
+    const redisUrl = Deno.env.get('UPSTASH_REDIS_REST_URL');
+    const redisToken = Deno.env.get('UPSTASH_REDIS_REST_TOKEN');
+    
+    // Bypass rate limiting if the user brought their own API key
+    if (!customApiKey && redisUrl && redisToken) {
+      const redis = new Redis({
+        url: redisUrl,
+        token: redisToken,
+      });
+
+      const limitMinute = parseInt(Deno.env.get('AI_LIMIT_PER_MINUTE') || '3', 10);
+      const ratelimitMinute = new Ratelimit({
+        redis: redis,
+        limiter: Ratelimit.slidingWindow(limitMinute, "1 m"),
+        ephemeralCache: new Map(),
+        prefix: "ratelimit:minute"
+      });
+      
+      const limitDay = parseInt(Deno.env.get('AI_LIMIT_PER_DAY') || '6', 10);
+      const ratelimitDay = new Ratelimit({
+        redis: redis,
+        limiter: Ratelimit.slidingWindow(limitDay, "1 d"),
+        ephemeralCache: new Map(),
+        prefix: "ratelimit:day"
+      });
+
+      // Composite key using userId and IP address
+      const ip = req.headers.get('x-forwarded-for') || 'unknown-ip';
+      const identifier = `${user.id}:${ip}`;
+
+      const { success: successMinute } = await ratelimitMinute.limit(identifier);
+      if (!successMinute) {
+        return new Response(
+          JSON.stringify({ error: "Too many requests. Please wait a minute before trying again." }),
+          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const { success: successDay } = await ratelimitDay.limit(identifier);
+      if (!successDay) {
+        return new Response(
+          JSON.stringify({ error: "Daily limit reached. You can only analyze 6 meals per day on the free tier." }),
+          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
     }
 
     // ── Validate Input ───────────────────────────────────────────────
