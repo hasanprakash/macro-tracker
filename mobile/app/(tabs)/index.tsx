@@ -30,6 +30,8 @@ import { LogWeightModal } from '@/components/LogWeightModal';
 import { CalendarModal } from '@/components/CalendarModal';
 import { useHealthConnect } from '@/hooks/useHealthConnect';
 import { useAlert } from '@/components/ui/CustomAlert';
+import { AppWalkthrough } from '@/components/AppWalkthrough';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width } = Dimensions.get('window');
 
@@ -58,7 +60,9 @@ export default function HomeScreen() {
   const [todaysWeight, setTodaysWeight] = useState<WeightLog | null>(null);
 
   // UI Flow State
+  const [isDashboardLoading, setIsDashboardLoading] = useState(true);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showWalkthrough, setShowWalkthrough] = useState(false);
   const [activeMealType, setActiveMealType] = useState<string>('');
   const [addModalVisible, setAddModalVisible] = useState(false);
   const [addExerciseVisible, setAddExerciseVisible] = useState(false);
@@ -79,6 +83,7 @@ export default function HomeScreen() {
   const { steps: hcSteps, activeCalories: hcActiveCalories, isSupported: hcSupported, error: hcError, fetchSteps } = useHealthConnect();
 
   const fetchDashboardData = useCallback(async (uid: string, dateStr: string) => {
+    setIsDashboardLoading(true);
     // 1. Fetch daily summary
     const { data: summaryData } = await supabase
       .from('daily_summaries')
@@ -154,6 +159,8 @@ export default function HomeScreen() {
     } else {
       setTodaysWeight(null);
     }
+
+    setIsDashboardLoading(false);
   }, []);
 
   useEffect(() => {
@@ -204,6 +211,12 @@ export default function HomeScreen() {
           const diffTime = current.getTime() - start.getTime();
           const dayNum = Math.max(1, Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1);
           setDayNumber(dayNum);
+        }
+
+        // Check if we should show walkthrough
+        const hasSeenWalkthrough = await AsyncStorage.getItem('has_seen_walkthrough');
+        if (!hasSeenWalkthrough) {
+          setShowWalkthrough(true);
         }
 
         fetchDashboardData(user.id, selectedDate);
@@ -427,6 +440,11 @@ export default function HomeScreen() {
   };
 
   const openAddFood = (mealType: string) => {
+    const existingEntriesCount = todaysEntries.filter(e => e.meal_type === mealType).length;
+    if (existingEntriesCount >= 5) {
+      showAlert('Limit Reached', `You have reached the maximum of 5 entries for ${mealType} today.`);
+      return;
+    }
     setActiveMealType(mealType);
     setAddModalVisible(true);
   };
@@ -794,6 +812,7 @@ export default function HomeScreen() {
           targetFat={profile?.target_fat}
           burnedCalories={totalBurnedCalories}
           underEatingThreshold={profile?.under_eating_threshold}
+          isLoading={isDashboardLoading}
         />
 
         {MEAL_TYPES.map((meal) => (
@@ -879,6 +898,14 @@ export default function HomeScreen() {
         onSelectDate={(dateStr) => {
           setSelectedDate(dateStr);
           setCalendarVisible(false);
+        }}
+      />
+
+      <AppWalkthrough
+        visible={showWalkthrough}
+        onComplete={async () => {
+          await AsyncStorage.setItem('has_seen_walkthrough', 'true');
+          setShowWalkthrough(false);
         }}
       />
     </SafeAreaView>

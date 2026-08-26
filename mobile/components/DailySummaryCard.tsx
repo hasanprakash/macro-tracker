@@ -1,19 +1,57 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  useDerivedValue,
+  withTiming,
+  withDelay,
+  withSpring,
+  Easing,
+  useAnimatedProps,
+} from 'react-native-reanimated';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Ionicons } from '@expo/vector-icons';
 import { useAlert } from '@/components/ui/CustomAlert';
+
+import { TextInput } from 'react-native';
+
+const AnimatedTextInput = Animated.createAnimatedComponent(TextInput);
+
+function CountingNumber({ value, isLoading, style, prefix = '', suffix = '' }: { value: number; isLoading?: boolean; style: any; prefix?: string; suffix?: string }) {
+  const animatedValue = useSharedValue(0);
+
+  useEffect(() => {
+    if (isLoading) {
+      animatedValue.value = 0;
+    } else {
+      animatedValue.value = withTiming(value, { duration: 900, easing: Easing.out(Easing.cubic) });
+    }
+  }, [value, isLoading]);
+
+  const animatedProps = useAnimatedProps(() => {
+    return {
+      text: isLoading ? '...' : `${prefix}${Math.round(animatedValue.value)}${suffix}`,
+    } as any;
+  });
+
+  return (
+    <AnimatedTextInput
+      underlineColorAndroid="transparent"
+      editable={false}
+      value={isLoading ? '...' : `${prefix}${Math.round(value)}${suffix}`}
+      animatedProps={animatedProps}
+      style={[style, { padding: 0, margin: 0 }]}
+    />
+  );
+}
 
 const PureCircularProgress = ({ size, strokeWidth, progress, ringColor, trackColor, cardBg, children }: any) => {
   const half = size / 2;
   const clampedProgress = Math.min(100, Math.max(0, progress));
   
-  // Progress 0-50 maps to Left Side (45 to 180 deg rotation)
   const leftRotate = clampedProgress >= 50 ? 180 : 45 + (clampedProgress / 50) * 135;
-  
-  // Progress 50-100 maps to Right Side (0 to 135 deg rotation)
   const rightRotate = clampedProgress <= 50 ? 0 : ((clampedProgress - 50) / 50) * 135;
-
   const tipRotation = 225 + (clampedProgress / 100) * 270;
 
   const S = size;
@@ -105,13 +143,15 @@ interface DailySummaryProps {
   targetFat?: number | null;
   burnedCalories?: number;
   underEatingThreshold?: number | null;
+  isLoading?: boolean;
 }
 
 export function DailySummaryCard({ 
   calories, protein, carbs, fat, 
   targetCalories, targetProtein, targetCarbs, targetFat,
   burnedCalories = 0,
-  underEatingThreshold
+  underEatingThreshold,
+  isLoading
 }: DailySummaryProps) {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
@@ -131,8 +171,108 @@ export function DailySummaryCard({
   const macroBg = isDark ? '#0F172A' : '#F1F5F9';
   
   const isUnderEating = underEatingThreshold ? calories < underEatingThreshold : false;
-  const ringColor = isUnderEating ? '#EF4444' : (isDark ? '#34D399' : '#10B981'); // Red if under, else Emerald
+  const ringColor = isUnderEating ? '#EF4444' : (isDark ? '#34D399' : '#10B981');
   const trackColor = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
+
+  // ── Entrance Animations ────────────────────────────────────
+  const ringProgress = useSharedValue(0);
+
+  // Macro bar widths (animated)
+  const proteinBarWidth = useSharedValue(0);
+  const carbsBarWidth = useSharedValue(0);
+  const fatBarWidth = useSharedValue(0);
+
+  // Macro card opacity (staggered fade-in)
+  const proteinOpacity = useSharedValue(0);
+  const carbsOpacity = useSharedValue(0);
+  const fatOpacity = useSharedValue(0);
+
+  const calPercent = getPercent(calories, tCals);
+
+  useEffect(() => {
+    if (isLoading) {
+      ringProgress.value = 0;
+      proteinBarWidth.value = 0;
+      carbsBarWidth.value = 0;
+      fatBarWidth.value = 0;
+      proteinOpacity.value = 0;
+      carbsOpacity.value = 0;
+      fatOpacity.value = 0;
+      return;
+    }
+
+    // Ring progress — animate after card appears
+    ringProgress.value = 0;
+    ringProgress.value = withDelay(200, withTiming(calPercent, { duration: 800, easing: Easing.out(Easing.cubic) }));
+
+    // Macro bars — staggered after ring
+    const barDelay = 600;
+    const barDuration = 700;
+    const barEasing = Easing.out(Easing.cubic);
+
+    proteinBarWidth.value = 0;
+    carbsBarWidth.value = 0;
+    fatBarWidth.value = 0;
+    proteinOpacity.value = 0;
+    carbsOpacity.value = 0;
+    fatOpacity.value = 0;
+
+    proteinOpacity.value = withDelay(barDelay, withTiming(1, { duration: 300 }));
+    proteinBarWidth.value = withDelay(barDelay, withTiming(getPercent(protein, tPro), { duration: barDuration, easing: barEasing }));
+
+    carbsOpacity.value = withDelay(barDelay + 120, withTiming(1, { duration: 300 }));
+    carbsBarWidth.value = withDelay(barDelay + 120, withTiming(getPercent(carbs, tCarbs), { duration: barDuration, easing: barEasing }));
+
+    fatOpacity.value = withDelay(barDelay + 240, withTiming(1, { duration: 300 }));
+    fatBarWidth.value = withDelay(barDelay + 240, withTiming(getPercent(fat, tFat), { duration: barDuration, easing: barEasing }));
+  }, [calories, protein, carbs, fat, calPercent, tPro, tCarbs, tFat, isLoading]);
+
+  const [animatedRingPercent, setAnimatedRingPercent] = React.useState(0);
+  useEffect(() => {
+    if (isLoading) {
+      setAnimatedRingPercent(0);
+      return;
+    }
+
+    let cancelled = false;
+    let startTime: number | null = null;
+    const duration = 800;
+    const delay = 200;
+
+    const timeout = setTimeout(() => {
+      const animate = (timestamp: number) => {
+        if (cancelled) return;
+        if (!startTime) startTime = timestamp;
+        const elapsed = timestamp - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        setAnimatedRingPercent(calPercent * eased);
+        if (progress < 1) requestAnimationFrame(animate);
+      };
+      requestAnimationFrame(animate);
+    }, delay);
+
+    return () => { cancelled = true; clearTimeout(timeout); };
+  }, [calPercent, isLoading]);
+
+  const proteinBarStyle = useAnimatedStyle(() => ({
+    width: `${proteinBarWidth.value}%` as any,
+    backgroundColor: '#F43F5E',
+  }));
+
+  const carbsBarStyle = useAnimatedStyle(() => ({
+    width: `${carbsBarWidth.value}%` as any,
+    backgroundColor: '#60A5FA',
+  }));
+
+  const fatBarStyle = useAnimatedStyle(() => ({
+    width: `${fatBarWidth.value}%` as any,
+    backgroundColor: '#FBBF24',
+  }));
+
+  const proteinCardStyle = useAnimatedStyle(() => ({ opacity: proteinOpacity.value }));
+  const carbsCardStyle = useAnimatedStyle(() => ({ opacity: carbsOpacity.value }));
+  const fatCardStyle = useAnimatedStyle(() => ({ opacity: fatOpacity.value }));
 
   const handleInfoPress = () => {
     if (!underEatingThreshold) return;
@@ -142,13 +282,6 @@ export function DailySummaryCard({
       `You need ${Math.ceil(diff)} more kcal to hit your minimum requirement.\n\nEating too little causes muscle loss, severe energy drops, and metabolic adaptation. Make sure to properly fuel your body!`
     );
   };
-
-  const ringSize = 160;
-  const strokeWidth = 10;
-  const radius = (ringSize - strokeWidth) / 2;
-  const circumference = radius * 2 * Math.PI;
-  const calPercent = getPercent(calories, tCals);
-  const strokeDashoffset = circumference - (circumference * calPercent) / 100;
 
   return (
     <View style={styles.container}>
@@ -164,21 +297,21 @@ export function DailySummaryCard({
         <View style={styles.ringsRow}>
           <View style={styles.sideStat}>
             <Text style={[styles.sideStatLabel, { color: textSecondary }]}>Eaten</Text>
-            <Text style={[styles.sideStatValue, { color: textPrimary }]}>{Math.round(calories)}</Text>
+            <CountingNumber value={Math.round(calories)} isLoading={isLoading} style={[styles.sideStatValue, { color: textPrimary }]} />
           </View>
 
           <View style={styles.centerRingWrapper}>
             <PureCircularProgress
               size={160}
               strokeWidth={10}
-              progress={calPercent}
+              progress={animatedRingPercent}
               ringColor={ringColor}
               trackColor={trackColor}
               cardBg={cardBg}
             >
               <View style={styles.centerRingContent}>
                 <Text style={[styles.ringLabel, { color: textSecondary }]}>Remaining</Text>
-                <Text style={[styles.ringValue, { color: textPrimary }]}>{Math.round(remainingCals)}</Text>
+                <CountingNumber value={Math.round(remainingCals)} isLoading={isLoading} style={[styles.ringValue, { color: textPrimary }]} />
                 <Text style={[styles.ringSub, { color: textSecondary }]}>/ {Math.round(tCals)} kcal</Text>
               </View>
             </PureCircularProgress>
@@ -186,38 +319,38 @@ export function DailySummaryCard({
 
           <View style={styles.sideStat}>
             <Text style={[styles.sideStatLabel, { color: textSecondary }]}>Burned</Text>
-            <Text style={[styles.sideStatValue, { color: '#F59E0B' }]}>{Math.round(burnedCalories)}</Text>
+            <CountingNumber value={Math.round(burnedCalories)} isLoading={isLoading} style={[styles.sideStatValue, { color: '#F59E0B' }]} />
           </View>
         </View>
 
         {/* Macros Row */}
         <View style={styles.macrosRow}>
           {/* Protein */}
-          <View style={[styles.macroCard, { backgroundColor: macroBg }]}>
+          <Animated.View style={[styles.macroCard, { backgroundColor: macroBg }, proteinCardStyle]}>
             <Text style={[styles.macroName, { color: textPrimary }]}>Protein</Text>
-            <Text style={[styles.macroAmount, { color: textSecondary }]}>{Math.round(protein)} / {Math.round(tPro)}g</Text>
+            <Text style={[styles.macroAmount, { color: textSecondary }]}>{isLoading ? '...' : `${Math.round(protein)} / ${Math.round(tPro)}g`}</Text>
             <View style={styles.progressBarBg}>
-              <View style={[styles.progressBarFill, { width: `${getPercent(protein, tPro)}%`, backgroundColor: '#F43F5E' }]} />
+              <Animated.View style={[styles.progressBarFill, proteinBarStyle]} />
             </View>
-          </View>
+          </Animated.View>
 
           {/* Carbs */}
-          <View style={[styles.macroCard, { backgroundColor: macroBg }]}>
+          <Animated.View style={[styles.macroCard, { backgroundColor: macroBg }, carbsCardStyle]}>
             <Text style={[styles.macroName, { color: textPrimary }]}>Carbs</Text>
-            <Text style={[styles.macroAmount, { color: textSecondary }]}>{Math.round(carbs)} / {Math.round(tCarbs)}g</Text>
+            <Text style={[styles.macroAmount, { color: textSecondary }]}>{isLoading ? '...' : `${Math.round(carbs)} / ${Math.round(tCarbs)}g`}</Text>
             <View style={styles.progressBarBg}>
-              <View style={[styles.progressBarFill, { width: `${getPercent(carbs, tCarbs)}%`, backgroundColor: '#60A5FA' }]} />
+              <Animated.View style={[styles.progressBarFill, carbsBarStyle]} />
             </View>
-          </View>
+          </Animated.View>
 
           {/* Fat */}
-          <View style={[styles.macroCard, { backgroundColor: macroBg }]}>
+          <Animated.View style={[styles.macroCard, { backgroundColor: macroBg }, fatCardStyle]}>
             <Text style={[styles.macroName, { color: textPrimary }]}>Fat</Text>
-            <Text style={[styles.macroAmount, { color: textSecondary }]}>{Math.round(fat)} / {Math.round(tFat)}g</Text>
+            <Text style={[styles.macroAmount, { color: textSecondary }]}>{isLoading ? '...' : `${Math.round(fat)} / ${Math.round(tFat)}g`}</Text>
             <View style={styles.progressBarBg}>
-              <View style={[styles.progressBarFill, { width: `${getPercent(fat, tFat)}%`, backgroundColor: '#FBBF24' }]} />
+              <Animated.View style={[styles.progressBarFill, fatBarStyle]} />
             </View>
-          </View>
+          </Animated.View>
         </View>
       </View>
     </View>
@@ -312,6 +445,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(150,150,150,0.2)',
     borderRadius: 3,
     width: '100%',
+    overflow: 'hidden',
   },
   progressBarFill: {
     height: '100%',
