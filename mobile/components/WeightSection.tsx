@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import type { WeightLog } from '@/lib/types';
 
@@ -22,7 +23,10 @@ export function WeightSection({ latestLog, onAddPress }: WeightSectionProps) {
   return (
     <View style={[styles.container, { backgroundColor: cardBg, borderColor }]}>
       {/* Consistent Header matching Meal/Exercise sections */}
-      <Pressable style={styles.header} onPress={onAddPress}>
+      <Pressable style={styles.header} onPress={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        onAddPress();
+      }}>
         <View style={styles.headerLeft}>
           <View style={[styles.iconWrap, { backgroundColor: activeColor + '18' }]}>
             <Ionicons name="scale-outline" size={20} color={activeColor} />
@@ -51,7 +55,10 @@ export function WeightSection({ latestLog, onAddPress }: WeightSectionProps) {
             </View>
           </View>
         ) : (
-          <Pressable style={styles.emptyContainer} onPress={onAddPress}>
+          <Pressable style={styles.emptyContainer} onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            onAddPress();
+          }}>
             <View style={styles.emptyIconWrap}>
               <Ionicons name="scale-outline" size={24} color={textSecondary} />
             </View>

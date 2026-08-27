@@ -175,6 +175,27 @@ export default function SettingsScreen() {
               </View>
               <Ionicons name="chevron-forward" size={20} color={textSecondary} />
             </Pressable>
+
+            <View style={[styles.divider, { backgroundColor: borderColor }]} />
+
+            <Pressable 
+              style={styles.listItem}
+              onPress={async () => {
+                await AsyncStorage.removeItem('has_seen_walkthrough');
+                router.replace('/(tabs)');
+              }}
+            >
+              <View style={styles.listItemLeft}>
+                <View style={[styles.iconContainer, { backgroundColor: 'rgba(99, 102, 241, 0.15)' }]}>
+                  <Ionicons name="compass-outline" size={20} color="#6366F1" />
+                </View>
+                <View>
+                  <Text style={[styles.listItemTitle, { color: textPrimary }]}>Show App Tour</Text>
+                  <Text style={[styles.listItemSubtitle, { color: textSecondary }]}>Replay the guided walkthrough</Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={textSecondary} />
+            </Pressable>
           </View>
         </View>
 

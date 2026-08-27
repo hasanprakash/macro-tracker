@@ -1,18 +1,16 @@
 import React from 'react';
 import { View, Text, StyleSheet, Pressable, TouchableOpacity } from 'react-native';
-import Animated, { useSharedValue, useAnimatedStyle, withTiming, Easing } from 'react-native-reanimated';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  Easing,
+} from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
+import * as Haptics from 'expo-haptics';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-
-interface ExerciseEntry {
-  id: string;
-  exercise_type: string;
-  description: string;
-  duration_minutes: number;
-  steps_count: number;
-  calories_burned: number;
-}
+import type { ExerciseEntry } from '@/lib/types';
 
 interface ExerciseSectionProps {
   entries: ExerciseEntry[];
@@ -21,16 +19,19 @@ interface ExerciseSectionProps {
   onStepsPress?: () => void;
 }
 
-const MAX_HEIGHT = 800;
+const SMOOTH_EASING = Easing.bezier(0.25, 0.1, 0.25, 1.0);
 
 export function ExerciseSection({ entries, onAddPress, onDeleteEntry, onStepsPress }: ExerciseSectionProps) {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
   const [expanded, setExpanded] = React.useState(true); // default open
 
-  const animHeight = useSharedValue(MAX_HEIGHT);
+  // Track actual content height for precise animations
+  const contentHeight = React.useRef(0);
+  const animHeight = useSharedValue(2000); // Start with large value for initial render
   const animOpacity = useSharedValue(1);
   const chevronRotation = useSharedValue(1);
+  const hasInitialized = React.useRef(false);
 
   const totalCalories = entries.reduce((sum, e) => sum + (e.calories_burned || 0), 0);
 
@@ -44,9 +45,32 @@ export function ExerciseSection({ entries, onAddPress, onDeleteEntry, onStepsPre
   const toggleExpand = () => {
     const opening = !expanded;
     setExpanded(opening);
-    animHeight.value = withTiming(opening ? MAX_HEIGHT : 0, { duration: 300, easing: Easing.inOut(Easing.ease) });
-    animOpacity.value = withTiming(opening ? 1 : 0, { duration: 250 });
-    chevronRotation.value = withTiming(opening ? 1 : 0, { duration: 250 });
+
+    if (opening) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } else {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+
+    const targetHeight = opening ? contentHeight.current : 0;
+    animHeight.value = withTiming(targetHeight, { duration: 320, easing: SMOOTH_EASING });
+    animOpacity.value = withTiming(opening ? 1 : 0, { duration: opening ? 280 : 200, easing: SMOOTH_EASING });
+    chevronRotation.value = withTiming(opening ? 1 : 0, { duration: 280, easing: SMOOTH_EASING });
+  };
+
+  const handleContentLayout = (event: any) => {
+    const { height } = event.nativeEvent.layout;
+    if (height > 0) {
+      contentHeight.current = height;
+      // On first layout when expanded by default, snap to measured height
+      if (!hasInitialized.current) {
+        hasInitialized.current = true;
+        animHeight.value = height;
+      } else if (expanded) {
+        // Content changed while expanded (e.g. entries added/removed)
+        animHeight.value = withTiming(height, { duration: 250, easing: SMOOTH_EASING });
+      }
+    }
   };
 
   const chevronStyle = useAnimatedStyle(() => ({
@@ -55,9 +79,9 @@ export function ExerciseSection({ entries, onAddPress, onDeleteEntry, onStepsPre
   }));
 
   const animatedContentStyle = useAnimatedStyle(() => ({
-    maxHeight: animHeight.value,
+    height: animHeight.value,
     opacity: animOpacity.value,
-    overflow: 'hidden',
+    overflow: 'hidden' as const,
   }));
 
   return (
@@ -83,93 +107,98 @@ export function ExerciseSection({ entries, onAddPress, onDeleteEntry, onStepsPre
             { backgroundColor: color + '18' },
             pressed && { opacity: 0.7, transform: [{ scale: 0.92 }] },
           ]}
-          onPress={onAddPress}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            onAddPress();
+          }}
         >
           <Ionicons name="add" size={20} color={color} />
         </Pressable>
       </Pressable>
 
       <Animated.View style={animatedContentStyle}>
-        {entries.length > 0 ? (
-          <View style={styles.entriesList}>
-            {entries.filter(e => e.exercise_type === 'Steps').length > 0 && (
-              <>
-                <Text style={[styles.sectionTitle, { color: textSecondary }]}>Daily movement</Text>
-                {entries.filter(e => e.exercise_type === 'Steps').map((entry) => (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0 }} onLayout={handleContentLayout}>
+          {entries.length > 0 ? (
+            <View style={styles.entriesList}>
+              {entries.filter(e => e.exercise_type === 'Steps').length > 0 && (
+                <>
+                  <Text style={[styles.sectionTitle, { color: textSecondary }]}>Daily movement</Text>
+                  {entries.filter(e => e.exercise_type === 'Steps').map((entry) => (
 
-                    <TouchableOpacity 
-                      key={entry.id} 
-                      style={[styles.entryRow, { backgroundColor: entryBg }]}
-                      activeOpacity={0.7}
-                      onPress={onStepsPress}
-                      disabled={!onStepsPress}
-                    >
-                      <View style={styles.entryInfo}>
-                        <Text style={[styles.entryName, { color: textPrimary }]}>
-                          {entry.steps_count >= 0 ? `${entry.steps_count.toLocaleString()} Steps` : 'Steps Not Available'}
-                        </Text>
-                        {entry.description && (
-                          <Text style={[styles.entryMacros, { color: textSecondary }]}>
-                            {entry.description}
-                          </Text>
-                        )}
-                      </View>
-                      <View style={styles.entryRowRight}>
-                        <Text style={[styles.entryCal, { color: textPrimary }]}>
-                          ~{Math.round(entry.calories_burned)} kcal
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-
-                ))}
-              </>
-            )}
-
-            {entries.filter(e => e.exercise_type !== 'Steps').length > 0 && (
-              <>
-                <Text style={[styles.sectionTitle, { color: textSecondary, marginTop: entries.filter(e => e.exercise_type === 'Steps').length > 0 ? 12 : 0 }]}>
-                  Structured exercise
-                </Text>
-                {entries.filter(e => e.exercise_type !== 'Steps').map((entry) => (
-                  <Swipeable
-                    key={entry.id}
-                    renderRightActions={() => (
-                      <Pressable
-                        style={styles.deleteButton}
-                        onPress={() => onDeleteEntry(entry)}
+                      <TouchableOpacity 
+                        key={entry.id} 
+                        style={[styles.entryRow, { backgroundColor: entryBg }]}
+                        activeOpacity={0.7}
+                        onPress={onStepsPress}
+                        disabled={!onStepsPress}
                       >
-                        <Ionicons name="trash-outline" size={20} color="#FFFFFF" />
-                      </Pressable>
-                    )}
-                  >
-                    <View style={[styles.entryRow, { backgroundColor: entryBg }]}>
-                      <View style={styles.entryInfo}>
-                        <Text style={[styles.entryName, { color: textPrimary }]}>
-                          {entry.exercise_type}
-                        </Text>
-                        {entry.description && (
-                          <Text style={[styles.entryDesc, { color: textSecondary }]} numberOfLines={1}>
-                            {entry.description}
+                        <View style={styles.entryInfo}>
+                          <Text style={[styles.entryName, { color: textPrimary }]}>
+                            {(entry.steps_count ?? -1) >= 0 ? `${(entry.steps_count ?? 0).toLocaleString()} Steps` : 'Steps Not Available'}
                           </Text>
-                        )}
-                        <Text style={[styles.entryMacros, { color: textSecondary }]}>
-                          {entry.duration_minutes} min • {entry.exercise_type}
-                        </Text>
+                          {entry.description && (
+                            <Text style={[styles.entryMacros, { color: textSecondary }]}>
+                              {entry.description}
+                            </Text>
+                          )}
+                        </View>
+                        <View style={styles.entryRowRight}>
+                          <Text style={[styles.entryCal, { color: textPrimary }]}>
+                            ~{Math.round(entry.calories_burned)} kcal
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+
+                  ))}
+                </>
+              )}
+
+              {entries.filter(e => e.exercise_type !== 'Steps').length > 0 && (
+                <>
+                  <Text style={[styles.sectionTitle, { color: textSecondary, marginTop: entries.filter(e => e.exercise_type === 'Steps').length > 0 ? 12 : 0 }]}>
+                    Structured exercise
+                  </Text>
+                  {entries.filter(e => e.exercise_type !== 'Steps').map((entry) => (
+                    <Swipeable
+                      key={entry.id}
+                      renderRightActions={() => (
+                        <Pressable
+                          style={styles.deleteButton}
+                          onPress={() => onDeleteEntry(entry)}
+                        >
+                          <Ionicons name="trash-outline" size={20} color="#FFFFFF" />
+                        </Pressable>
+                      )}
+                    >
+                      <View style={[styles.entryRow, { backgroundColor: entryBg }]}>
+                        <View style={styles.entryInfo}>
+                          <Text style={[styles.entryName, { color: textPrimary }]}>
+                            {entry.exercise_type}
+                          </Text>
+                          {entry.description && (
+                            <Text style={[styles.entryDesc, { color: textSecondary }]} numberOfLines={1}>
+                              {entry.description}
+                            </Text>
+                          )}
+                          <Text style={[styles.entryMacros, { color: textSecondary }]}>
+                            {entry.duration_minutes} min • {entry.exercise_type}
+                          </Text>
+                        </View>
+                        <View style={styles.entryRowRight}>
+                          <Text style={[styles.entryCal, { color: textPrimary }]}>
+                            ~{Math.round(entry.calories_burned)} kcal
+                          </Text>
+                        </View>
                       </View>
-                      <View style={styles.entryRowRight}>
-                        <Text style={[styles.entryCal, { color: textPrimary }]}>
-                          ~{Math.round(entry.calories_burned)} kcal
-                        </Text>
-                      </View>
-                    </View>
-                  </Swipeable>
-                ))}
-              </>
-            )}
-          </View>
-        ) : (
-          <Text style={[styles.emptyText, { color: textSecondary }]}>No activity logged yet</Text>
-        )}
+                    </Swipeable>
+                  ))}
+                </>
+              )}
+            </View>
+          ) : (
+            <Text style={[styles.emptyText, { color: textSecondary }]}>No activity logged yet</Text>
+          )}
+        </View>
       </Animated.View>
     </View>
   );

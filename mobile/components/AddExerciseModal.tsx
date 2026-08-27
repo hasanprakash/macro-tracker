@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 interface AddExerciseModalProps {
@@ -44,6 +45,7 @@ export function AddExerciseModal({
   };
 
   const handleClose = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     handleReset();
     onClose();
   };
@@ -57,6 +59,7 @@ export function AddExerciseModal({
       }
       const result = await onAnalyzeExercise(exerciseText);
       await onLogExercise(result, exerciseText);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       handleClose();
     } catch (error) {
       console.error(error);

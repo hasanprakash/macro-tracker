@@ -14,6 +14,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import * as Haptics from 'expo-haptics';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import type { FoodItem, MealEstimate, MealTotals } from '@/lib/types';
 
@@ -109,6 +110,7 @@ export function MealReviewModal({
   }, []);
 
   const handleSave = () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     onSave(mealName, title, currentFoods, totals);
   };
 
@@ -163,7 +165,7 @@ export function MealReviewModal({
                 AI Confidence: {Math.round((estimate.confidence || 0.9) * 100)}%
               </Text>
             </View>
-            <Pressable onPress={onClose} disabled={isSaving} hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }} style={{ padding: 4 }}>
+            <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onClose(); }} disabled={isSaving} hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }} style={{ padding: 4 }}>
               <Ionicons name="close" size={28} color={textSecondary} />
             </Pressable>
           </View>

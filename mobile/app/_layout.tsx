@@ -150,7 +150,7 @@ function RootContent() {
 
 
   const useLocalSupabase = process.env.EXPO_PUBLIC_USE_LOCAL_SUPABASE === 'true';
-  console.log("useLocalSupabase:", useLocalSupabase);
+  // console.log("useLocalSupabase:", useLocalSupabase);
   // console.log("session:", session);
 
   // Loading state while verifying auth session

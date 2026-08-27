@@ -13,6 +13,7 @@ import Animated, {
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Ionicons } from '@expo/vector-icons';
 import { useAlert } from '@/components/ui/CustomAlert';
+import * as Haptics from 'expo-haptics';
 
 import { TextInput } from 'react-native';
 
@@ -25,7 +26,7 @@ function CountingNumber({ value, isLoading, style, prefix = '', suffix = '' }: {
     if (isLoading) {
       animatedValue.value = 0;
     } else {
-      animatedValue.value = withTiming(value, { duration: 900, easing: Easing.out(Easing.cubic) });
+      animatedValue.value = withDelay(200, withTiming(value, { duration: 800, easing: Easing.out(Easing.cubic) }));
     }
   }, [value, isLoading]);
 
@@ -201,14 +202,33 @@ export function DailySummaryCard({
       return;
     }
 
+    const timeoutIds: ReturnType<typeof setTimeout>[] = [];
+
+    // Play structured haptic feedback sequence alongside animations
+    const playHaptics = () => {
+      // Ring sweeping up (12 ticks, decelerating frequency)
+      for (let i = 0; i < 12; i++) {
+        const timeOffset = 700 * Math.pow(i / 11, 1.5);
+        timeoutIds.push(setTimeout(() => Haptics.selectionAsync(), 200 + timeOffset));
+      }
+      // Macro bars hitting (staggered delay 1100, 1250, 1400)
+      timeoutIds.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium), 1100));
+      timeoutIds.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium), 1250));
+      timeoutIds.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy), 1400));
+      timeoutIds.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy), 1510));
+      
+    };
+    playHaptics();
+
     // Ring progress — animate after card appears
     ringProgress.value = 0;
     ringProgress.value = withDelay(200, withTiming(calPercent, { duration: 800, easing: Easing.out(Easing.cubic) }));
 
-    // Macro bars — staggered after ring
-    const barDelay = 600;
+    // Macro bars — staggered after ring finishes
+    const barDelay = 1100;
     const barDuration = 700;
     const barEasing = Easing.out(Easing.cubic);
+    const barStagger = 150; // Increased stagger from 120ms to 150ms for better distinction
 
     proteinBarWidth.value = 0;
     carbsBarWidth.value = 0;
@@ -220,11 +240,15 @@ export function DailySummaryCard({
     proteinOpacity.value = withDelay(barDelay, withTiming(1, { duration: 300 }));
     proteinBarWidth.value = withDelay(barDelay, withTiming(getPercent(protein, tPro), { duration: barDuration, easing: barEasing }));
 
-    carbsOpacity.value = withDelay(barDelay + 120, withTiming(1, { duration: 300 }));
-    carbsBarWidth.value = withDelay(barDelay + 120, withTiming(getPercent(carbs, tCarbs), { duration: barDuration, easing: barEasing }));
+    carbsOpacity.value = withDelay(barDelay + barStagger, withTiming(1, { duration: 300 }));
+    carbsBarWidth.value = withDelay(barDelay + barStagger, withTiming(getPercent(carbs, tCarbs), { duration: barDuration, easing: barEasing }));
 
-    fatOpacity.value = withDelay(barDelay + 240, withTiming(1, { duration: 300 }));
-    fatBarWidth.value = withDelay(barDelay + 240, withTiming(getPercent(fat, tFat), { duration: barDuration, easing: barEasing }));
+    fatOpacity.value = withDelay(barDelay + barStagger * 2, withTiming(1, { duration: 300 }));
+    fatBarWidth.value = withDelay(barDelay + barStagger * 2, withTiming(getPercent(fat, tFat), { duration: barDuration, easing: barEasing }));
+
+    return () => {
+      timeoutIds.forEach(clearTimeout);
+    };
   }, [calories, protein, carbs, fat, calPercent, tPro, tCarbs, tFat, isLoading]);
 
   const [animatedRingPercent, setAnimatedRingPercent] = React.useState(0);

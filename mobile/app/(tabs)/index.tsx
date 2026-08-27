@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -11,6 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { useRouter } from 'expo-router';
+import * as Haptics from 'expo-haptics';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { supabase } from '@/lib/supabase';
@@ -30,7 +31,7 @@ import { LogWeightModal } from '@/components/LogWeightModal';
 import { CalendarModal } from '@/components/CalendarModal';
 import { useHealthConnect } from '@/hooks/useHealthConnect';
 import { useAlert } from '@/components/ui/CustomAlert';
-import { AppWalkthrough } from '@/components/AppWalkthrough';
+import { SpotlightWalkthrough } from '@/components/SpotlightWalkthrough';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width } = Dimensions.get('window');
@@ -80,7 +81,25 @@ export default function HomeScreen() {
   const [editingEntry, setEditingEntry] = useState<MealEntry | null>(null);
 
   const router = useRouter();
-  const { steps: hcSteps, activeCalories: hcActiveCalories, isSupported: hcSupported, error: hcError, fetchSteps } = useHealthConnect();
+  const { steps: hcSteps, activeCalories: hcActiveCalories, isSupported: hcSupported, error: hcError, fetchSteps } = useHealthConnect(selectedDate);
+
+  // Refs for spotlight walkthrough
+  const rootRef = useRef<View>(null);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const scrollOffsetRef = useRef(0);
+  const dailySummaryRef = useRef<View>(null);
+  const mealSectionsRef = useRef<View>(null);
+  const exerciseSectionRef = useRef<View>(null);
+  const weightSectionRef = useRef<View>(null);
+  const insightsTabRef = useRef<View>(null);
+
+  const walkthroughTargetRefs = useRef({
+    dailySummary: dailySummaryRef,
+    mealSections: mealSectionsRef,
+    exerciseSection: exerciseSectionRef,
+    weightSection: weightSectionRef,
+    insightsTab: insightsTabRef,
+  }).current;
 
   const fetchDashboardData = useCallback(async (uid: string, dateStr: string) => {
     setIsDashboardLoading(true);
@@ -203,8 +222,9 @@ export default function HomeScreen() {
         }
 
         // Calculate Day Number
-        if (profileData?.created_at) {
-          const start = new Date(profileData.created_at);
+        const accountCreatedAt = user.created_at || profileData?.created_at;
+        if (accountCreatedAt) {
+          const start = new Date(accountCreatedAt);
           start.setHours(0,0,0,0);
           const current = new Date(selectedDate);
           current.setHours(0,0,0,0);
@@ -230,7 +250,7 @@ export default function HomeScreen() {
     const syncStepsToDB = async () => {
       if (!userId || !hcSupported || hcSteps === null || hcSteps <= 0 || !profile) return;
       
-      const today = new Date().toISOString().split('T')[0];
+      const syncDate = selectedDate;
       const strideCm = profile.stride_length_cm || ((profile.height_cm || 170) * 0.414);
       const distanceKm = hcSteps * (strideCm / 100) / 1000;
       
@@ -251,7 +271,7 @@ export default function HomeScreen() {
         .from('exercises')
         .select('*')
         .eq('user_id', userId)
-        .eq('exercise_date', today)
+        .eq('exercise_date', syncDate)
         .eq('exercise_type', 'Steps')
         .maybeSingle();
 
@@ -272,7 +292,7 @@ export default function HomeScreen() {
       } else {
         const newEntry = {
           user_id: userId,
-          exercise_date: today,
+          exercise_date: syncDate,
           exercise_type: 'Steps',
           description: `≈ ${distanceKm.toFixed(1)} km`,
           duration_minutes: 0,
@@ -285,7 +305,7 @@ export default function HomeScreen() {
         if (data && !error) {
           // Clean state first to prevent duplicates
           setTodaysExercises(prev => {
-            const filtered = prev.filter(e => e.exercise_type !== 'Steps' || e.exercise_date !== today);
+            const filtered = prev.filter(e => e.exercise_type !== 'Steps' || e.exercise_date !== syncDate);
             return [...filtered, data];
           });
         }
@@ -297,7 +317,7 @@ export default function HomeScreen() {
     }, 2000);
 
     return () => clearTimeout(timeoutId);
-  }, [hcSteps, hcActiveCalories, userId, profile]);
+  }, [hcSteps, hcActiveCalories, userId, profile, selectedDate]);
 
   const handleRefreshHC = () => {
     if (isRefreshingHC) return;
@@ -451,6 +471,7 @@ export default function HomeScreen() {
 
   // Step 1: Call Gemini
   const handleAnalyze = async (text?: string, imageBase64?: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     setScanningType('meal');
     try {
       const { data, error } = await supabase.functions.invoke('scan-food', {
@@ -459,9 +480,12 @@ export default function HomeScreen() {
       
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
+      
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setEstimate(data.data as MealEstimate);
       setReviewVisible(true);
     } catch (err: any) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       showAlert('Analysis Failed', err.message || 'Could not analyze meal.');
     } finally {
       setScanningType(null);
@@ -676,20 +700,12 @@ export default function HomeScreen() {
     return 'Good Evening';
   };
 
-  if (scanningType) {
-    return (
-      <View style={[styles.container, { backgroundColor: isDark ? '#0F172A' : '#F8FAFC', justifyContent: 'center' }]}>
-        <ScanningLoader type={scanningType} />
-      </View>
-    );
-  }
-
   const hcStepsEntry = hcSupported && (hcSteps !== null || hcError) ? (() => {
     if (hcError || hcSteps === null) {
       return {
         id: 'health-connect-steps',
         user_id: userId || '',
-        exercise_date: new Date().toISOString().split('T')[0],
+        exercise_date: selectedDate,
         exercise_type: 'Steps',
         description: 'Tap to connect',
         duration_minutes: 0,
@@ -719,7 +735,7 @@ export default function HomeScreen() {
     return {
       id: 'health-connect-steps',
       user_id: userId || '',
-      exercise_date: new Date().toISOString().split('T')[0],
+      exercise_date: selectedDate,
       exercise_type: 'Steps',
       description: `≈ ${distanceKm.toFixed(1)} km`,
       duration_minutes: 0,
@@ -744,10 +760,17 @@ export default function HomeScreen() {
   const targetCarbs = profile?.target_carbs ? profile.target_carbs + (activityCredit / 4) : undefined;
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#0F172A' : '#F8FAFC' }]}>
+    <SafeAreaView ref={rootRef} style={[styles.container, { backgroundColor: isDark ? '#0F172A' : '#F8FAFC' }]}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
       
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        ref={scrollViewRef}
+        scrollEnabled={!showWalkthrough}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y; }}
+        scrollEventThrottle={16}
+      >
         <View style={styles.header}>
           <View>
             <Text style={[styles.greeting, { color: isDark ? '#94A3B8' : '#64748B' }]}>{greeting()} 👋</Text>
@@ -801,44 +824,52 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        <DailySummaryCard
-          calories={dailySummary.calories}
-          protein={dailySummary.protein}
-          carbs={dailySummary.carbs}
-          fat={dailySummary.fat}
-          targetCalories={targetCals}
-          targetProtein={profile?.target_protein}
-          targetCarbs={targetCarbs}
-          targetFat={profile?.target_fat}
-          burnedCalories={totalBurnedCalories}
-          underEatingThreshold={profile?.under_eating_threshold}
-          isLoading={isDashboardLoading}
-        />
-
-        {MEAL_TYPES.map((meal) => (
-          <MealSection
-            key={meal.title}
-            title={meal.title}
-            icon={meal.icon}
-            color={meal.color}
-            entries={todaysEntries.filter(e => e.meal_type === meal.title)}
-            onAddPress={() => openAddFood(meal.title)}
-            onDeleteEntry={handleDeleteEntry}
-            onEditEntry={handleEditEntry}
+        <View ref={dailySummaryRef} collapsable={false}>
+          <DailySummaryCard
+            calories={dailySummary.calories}
+            protein={dailySummary.protein}
+            carbs={dailySummary.carbs}
+            fat={dailySummary.fat}
+            targetCalories={targetCals}
+            targetProtein={profile?.target_protein}
+            targetCarbs={targetCarbs}
+            targetFat={profile?.target_fat}
+            burnedCalories={totalBurnedCalories}
+            underEatingThreshold={profile?.under_eating_threshold}
+            isLoading={isDashboardLoading}
           />
-        ))}
+        </View>
 
-        <ExerciseSection
-          entries={displayExercises}
-          onAddPress={() => setAddExerciseVisible(true)}
-          onDeleteEntry={handleDeleteExercise}
-          onStepsPress={() => fetchSteps(true)}
-        />
+        <View ref={mealSectionsRef} collapsable={false}>
+          {MEAL_TYPES.map((meal) => (
+            <MealSection
+              key={meal.title}
+              title={meal.title}
+              icon={meal.icon}
+              color={meal.color}
+              entries={todaysEntries.filter(e => e.meal_type === meal.title)}
+              onAddPress={() => openAddFood(meal.title)}
+              onDeleteEntry={handleDeleteEntry}
+              onEditEntry={handleEditEntry}
+            />
+          ))}
+        </View>
 
-        <WeightSection
-          latestLog={todaysWeight}
-          onAddPress={() => setAddWeightVisible(true)}
-        />
+        <View ref={exerciseSectionRef} collapsable={false}>
+          <ExerciseSection
+            entries={displayExercises}
+            onAddPress={() => setAddExerciseVisible(true)}
+            onDeleteEntry={handleDeleteExercise}
+            onStepsPress={() => fetchSteps(true)}
+          />
+        </View>
+
+        <View ref={weightSectionRef} collapsable={false}>
+          <WeightSection
+            latestLog={todaysWeight}
+            onAddPress={() => setAddWeightVisible(true)}
+          />
+        </View>
 
         <View style={styles.accountInfo}>
           <Text style={[styles.accountEmail, { color: isDark ? '#475569' : '#CBD5E1' }]}>
@@ -901,13 +932,23 @@ export default function HomeScreen() {
         }}
       />
 
-      <AppWalkthrough
+      <SpotlightWalkthrough
         visible={showWalkthrough}
         onComplete={async () => {
           await AsyncStorage.setItem('has_seen_walkthrough', 'true');
           setShowWalkthrough(false);
         }}
+        targetRefs={walkthroughTargetRefs}
+        scrollViewRef={scrollViewRef}
+        rootRef={rootRef}
+        scrollOffsetRef={scrollOffsetRef}
       />
+
+      {scanningType && (
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? '#0F172A' : '#F8FAFC', justifyContent: 'center', zIndex: 1000 }]}>
+          <ScanningLoader type={scanningType} />
+        </View>
+      )}
     </SafeAreaView>
   );
 }

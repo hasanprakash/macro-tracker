@@ -11,6 +11,7 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import type { RecentFood, FoodItem, MealTotals } from '@/lib/types';
 import * as ImagePicker from 'expo-image-picker';
@@ -51,6 +52,7 @@ export function AddFoodModal({
   const buttonBg = isDark ? '#334155' : '#F1F5F9';
 
   const handleClose = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setMode('options');
     setDescription('');
     setImageBase64(undefined);
@@ -132,7 +134,10 @@ export function AddFoodModal({
                 {/* Search / Describe (Text) */}
                 <Pressable
                   style={[styles.optionCard, { backgroundColor: buttonBg, borderColor }]}
-                  onPress={() => setMode('describe')}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setMode('describe');
+                  }}
                 >
                   <Ionicons name="text-outline" size={28} color="#10B981" />
                   <Text style={[styles.optionTitle, { color: textPrimary }]}>Describe meal</Text>

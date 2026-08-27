@@ -7,14 +7,14 @@ import {
   openHealthConnectSettings,
 } from 'react-native-health-connect';
 
-export function useHealthConnect() {
+export function useHealthConnect(targetDateStr?: string) {
   const [steps, setSteps] = useState<number | null>(null);
   const [activeCalories, setActiveCalories] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSupported, setIsSupported] = useState<boolean>(true);
   const awaitingSettingsReturn = useRef(false);
 
-  const fetchSteps = async (isManual = false) => {
+  const fetchSteps = async (isManual = false, overrideDateStr?: string) => {
     if (Platform.OS !== 'android') {
       setIsSupported(false);
       return;
@@ -38,15 +38,23 @@ export function useHealthConnect() {
         return; // Don't try to fetch if permission not granted
       }
       
+      const dateStr = overrideDateStr || targetDateStr || new Date().toISOString().split('T')[0];
+      const [year, month, day] = dateStr.split('-').map(Number);
+      
+      const startTime = new Date(year, month - 1, day, 0, 0, 0);
+      let endTime = new Date(year, month - 1, day, 23, 59, 59, 999);
+      
       const now = new Date();
-      const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      if (endTime > now) {
+        endTime = now;
+      }
 
       const result = await aggregateRecord({
         recordType: 'Steps',
         timeRangeFilter: {
           operator: 'between',
-          startTime: startOfDay.toISOString(),
-          endTime: now.toISOString(),
+          startTime: startTime.toISOString(),
+          endTime: endTime.toISOString(),
         },
       });
       const totalSteps = result.COUNT_TOTAL || 0;
@@ -56,8 +64,8 @@ export function useHealthConnect() {
         recordType: 'ActiveCaloriesBurned',
         timeRangeFilter: {
           operator: 'between',
-          startTime: startOfDay.toISOString(),
-          endTime: now.toISOString(),
+          startTime: startTime.toISOString(),
+          endTime: endTime.toISOString(),
         },
       });
       const totalKcal = caloriesResult.ACTIVE_CALORIES_TOTAL?.inKilocalories || 0;
@@ -92,7 +100,7 @@ export function useHealthConnect() {
     return () => {
       subscription.remove();
     };
-  }, []);
+  }, [targetDateStr]);
 
   return { steps, activeCalories, error, isSupported, fetchSteps };
 }
