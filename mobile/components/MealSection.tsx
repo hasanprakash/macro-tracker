@@ -9,6 +9,7 @@ import Animated, {
 import { Ionicons } from '@expo/vector-icons';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
 import * as Haptics from 'expo-haptics';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import type { MealEntry } from '@/lib/types';
 
@@ -34,6 +35,45 @@ export function MealSection({ title, icon, color, entries, onAddPress, onDeleteE
   const animHeight = useSharedValue(0);
   const animOpacity = useSharedValue(0);
   const chevronRotation = useSharedValue(0);
+
+  const firstSwipeableRef = React.useRef<Swipeable>(null);
+  const tipAnim = useSharedValue(0);
+  const tipTimeout1 = React.useRef<NodeJS.Timeout>();
+  const tipTimeout2 = React.useRef<NodeJS.Timeout>();
+
+  React.useEffect(() => {
+    if (expanded && entries.length > 0) {
+      checkSwipeTip();
+    }
+    return () => {
+      if (tipTimeout1.current) clearTimeout(tipTimeout1.current);
+      if (tipTimeout2.current) clearTimeout(tipTimeout2.current);
+    };
+  }, [expanded, entries.length]);
+
+  const checkSwipeTip = async () => {
+    try {
+      const hasSeen = await AsyncStorage.getItem('has_seen_swipe_delete_tip_home');
+      if (!hasSeen) {
+        tipTimeout1.current = setTimeout(() => {
+          if (firstSwipeableRef.current) {
+            firstSwipeableRef.current.openRight();
+            tipAnim.value = withTiming(1, { duration: 400, easing: Easing.out(Easing.cubic) });
+            tipTimeout2.current = setTimeout(() => {
+              firstSwipeableRef.current?.close();
+              AsyncStorage.setItem('has_seen_swipe_delete_tip_home', 'true');
+              tipAnim.value = withTiming(0, { duration: 300, easing: Easing.inOut(Easing.ease) });
+            }, 2500);
+          }
+        }, 800);
+      }
+    } catch (e) {}
+  };
+
+  const animatedTipStyle = useAnimatedStyle(() => ({
+    opacity: tipAnim.value,
+    transform: [{ translateY: (1 - tipAnim.value) * -10 }],
+  }));
 
   const totalCalories = entries.reduce((sum, e) => sum + (e.calories || 0), 0);
 
@@ -83,6 +123,11 @@ export function MealSection({ title, icon, color, entries, onAddPress, onDeleteE
 
   return (
     <View style={[styles.container, { backgroundColor: cardBg, borderColor }]}>
+      <Animated.View style={[styles.swipeTipBubble, animatedTipStyle]} pointerEvents="none">
+        <Text style={styles.swipeTipText}>Swipe left to delete!</Text>
+        <View style={styles.swipeTipArrow} />
+      </Animated.View>
+
       {/* Section Header */}
       <Pressable style={styles.header} onPress={toggleExpand}>
         <View style={styles.headerLeft}>
@@ -119,9 +164,10 @@ export function MealSection({ title, icon, color, entries, onAddPress, onDeleteE
         <View style={{ position: 'absolute', top: 0, left: 0, right: 0 }} onLayout={handleContentLayout}>
           {entries.length > 0 ? (
             <View style={styles.entriesList}>
-              {entries.map((entry) => (
+              {entries.map((entry, index) => (
                 <Swipeable
                   key={entry.id}
+                  ref={index === 0 ? firstSwipeableRef : null}
                   renderRightActions={() => (
                     <Pressable
                       style={styles.deleteButton}
@@ -140,11 +186,7 @@ export function MealSection({ title, icon, color, entries, onAddPress, onDeleteE
                       <Text style={[styles.entryName, { color: textPrimary }]} numberOfLines={1}>
                         {entry.title || entry.meal_name}
                       </Text>
-                      {entry.meal_name && entry.meal_name !== entry.title && (
-                        <Text style={[styles.entryDesc, { color: textSecondary }]} numberOfLines={1}>
-                          {entry.meal_name}
-                        </Text>
-                      )}
+
                       <Text style={[styles.entryMacros, { color: textSecondary }]}>
                         Protein: {Math.round(entry.protein)}g • Carbs: {Math.round(entry.carbs)}g • Fat: {Math.round(entry.fat)}g
                       </Text>
@@ -253,6 +295,38 @@ const styles = StyleSheet.create({
     width: 60,
     borderRadius: 12,
     marginLeft: 8,
+  },
+  swipeTipBubble: {
+    position: 'absolute',
+    top: 10,
+    alignSelf: 'center',
+    backgroundColor: '#10B981',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 16,
+    zIndex: 100,
+    elevation: 5,
+  },
+  swipeTipText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  swipeTipArrow: {
+    width: 0,
+    height: 0,
+    backgroundColor: 'transparent',
+    borderStyle: 'solid',
+    borderLeftWidth: 8,
+    borderRightWidth: 8,
+    borderTopWidth: 8,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: '#10B981',
+    position: 'absolute',
+    bottom: -8,
+    left: '50%',
+    marginLeft: -8,
   },
   emptyText: {
     marginTop: 12,

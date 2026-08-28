@@ -367,7 +367,7 @@ export function OnboardingModal({ visible, onSave, onSkip, initialStep, initialP
           onPress={onSkip}
         >
           <Text style={[styles.secondaryBtnText, { color: textPrimary }]}>
-            Just want to track food for now? Skip goals
+            Skip for now
           </Text>
         </Pressable>
       </View>

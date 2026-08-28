@@ -16,6 +16,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import type { RecentFood, FoodItem, MealTotals } from '@/lib/types';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface AddFoodModalProps {
   visible: boolean;
@@ -43,6 +44,29 @@ export function AddFoodModal({
   const [description, setDescription] = useState('');
   const [imageBase64, setImageBase64] = useState<string | undefined>();
   const [imageUri, setImageUri] = useState<string | undefined>();
+  const [showTip, setShowTip] = useState(false);
+
+  React.useEffect(() => {
+    if (visible) {
+      checkTip();
+    }
+  }, [visible]);
+
+  const checkTip = async () => {
+    try {
+      const hasSeen = await AsyncStorage.getItem('has_seen_add_food_tip');
+      if (!hasSeen) {
+        setShowTip(true);
+      }
+    } catch (e) {}
+  };
+
+  const dismissTip = async () => {
+    setShowTip(false);
+    try {
+      await AsyncStorage.setItem('has_seen_add_food_tip', 'true');
+    } catch (e) {}
+  };
 
   const cardBg = isDark ? '#1E293B' : '#FFFFFF';
   const textPrimary = isDark ? '#F8FAFC' : '#0F172A';
@@ -127,6 +151,20 @@ export function AddFoodModal({
               <Ionicons name="close" size={24} color={textSecondary} />
             </Pressable>
           </View>
+
+          {showTip && (
+            <View style={[styles.tipBox, { backgroundColor: 'rgba(59, 130, 246, 0.1)' }]}>
+              <Ionicons name="information-circle" size={24} color="#3B82F6" style={{ marginTop: 2 }} />
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={[styles.tipText, { color: textPrimary }]}>
+                  Results will be more accurate if you attach a photo and describe the items!
+                </Text>
+              </View>
+              <Pressable onPress={dismissTip} style={{ padding: 4 }}>
+                <Ionicons name="close" size={20} color={textSecondary} />
+              </Pressable>
+            </View>
+          )}
 
           {mode === 'options' ? (
             <ScrollView showsVerticalScrollIndicator={false}>
@@ -317,6 +355,17 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 20,
     fontWeight: '700',
+  },
+  tipBox: {
+    flexDirection: 'row',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 20,
+    alignItems: 'flex-start',
+  },
+  tipText: {
+    fontSize: 14,
+    lineHeight: 20,
   },
   optionsGrid: {
     flexDirection: 'row',

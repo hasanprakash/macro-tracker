@@ -15,6 +15,8 @@ import { Ionicons } from '@expo/vector-icons';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, Easing } from 'react-native-reanimated';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import type { FoodItem, MealEstimate, MealTotals } from '@/lib/types';
 
@@ -78,6 +80,45 @@ export function MealReviewModal({
   const [currentFoods, setCurrentFoods] = useState<FoodItem[]>([]);
   const [mealName, setMealName] = useState('');
   const [title, setTitle] = useState('');
+  
+  const firstSwipeableRef = React.useRef<Swipeable>(null);
+  const tipAnim = useSharedValue(0);
+  const tipTimeout1 = React.useRef<NodeJS.Timeout>();
+  const tipTimeout2 = React.useRef<NodeJS.Timeout>();
+
+  React.useEffect(() => {
+    if (visible && currentFoods.length > 0) {
+      checkSwipeTip();
+    }
+    return () => {
+      if (tipTimeout1.current) clearTimeout(tipTimeout1.current);
+      if (tipTimeout2.current) clearTimeout(tipTimeout2.current);
+    };
+  }, [visible, currentFoods.length]);
+
+  const checkSwipeTip = async () => {
+    try {
+      const hasSeen = await AsyncStorage.getItem('has_seen_swipe_delete_tip');
+      if (!hasSeen) {
+        tipTimeout1.current = setTimeout(() => {
+          if (firstSwipeableRef.current) {
+            firstSwipeableRef.current.openRight();
+            tipAnim.value = withTiming(1, { duration: 400, easing: Easing.out(Easing.cubic) });
+            tipTimeout2.current = setTimeout(() => {
+              firstSwipeableRef.current?.close();
+              AsyncStorage.setItem('has_seen_swipe_delete_tip', 'true');
+              tipAnim.value = withTiming(0, { duration: 300, easing: Easing.inOut(Easing.ease) });
+            }, 2500);
+          }
+        }, 800);
+      }
+    } catch (e) {}
+  };
+
+  const animatedTipStyle = useAnimatedStyle(() => ({
+    opacity: tipAnim.value,
+    transform: [{ translateY: (1 - tipAnim.value) * -10 }],
+  }));
 
   // Re-initialize when the estimate changes
   React.useEffect(() => {
@@ -114,7 +155,6 @@ export function MealReviewModal({
     onSave(mealName, title, currentFoods, totals);
   };
 
-  if (!estimate) return null;
 
   const cardBg = isDark ? '#1E293B' : '#FFFFFF';
   const textPrimary = isDark ? '#F8FAFC' : '#0F172A';
@@ -136,6 +176,8 @@ export function MealReviewModal({
       }),
     [onClose]
   );
+
+  if (!estimate) return null;
 
   return (
     <Modal 
@@ -178,6 +220,10 @@ export function MealReviewModal({
 
           {/* Foods Table */}
           <GestureHandlerRootView style={{ flex: 0 }}>
+            <Animated.View style={[styles.swipeTipBubble, animatedTipStyle]} pointerEvents="none">
+              <Text style={styles.swipeTipText}>Swipe left to delete!</Text>
+              <View style={styles.swipeTipArrow} />
+            </Animated.View>
             <ScrollView style={styles.foodsList} showsVerticalScrollIndicator={false}>
               {/* Table Header */}
               <View style={styles.tableHeader}>
@@ -186,18 +232,18 @@ export function MealReviewModal({
                 <Text style={[styles.tableHeaderText, { color: textSecondary, flex: 1, textAlign: 'right' }]}>Calories</Text>
               </View>
 
-              {/* Food Rows */}
               {currentFoods.length === 0 ? (
                 <View style={styles.emptyFoodsContainer}>
                   <Ionicons name="trash-outline" size={32} color={textSecondary} />
                   <Text style={[styles.emptyFoodsText, { color: textSecondary }]}>
-                    All items removed.{isEditMode ? ' Save to delete this meal.' : ''}
+                    All items removed.{isEditMode ? ' Save to delete this meal.' : ' You can discard this meal.'}
                   </Text>
                 </View>
               ) : (
                 currentFoods.map((food, index) => (
                   <Swipeable
                     key={index}
+                    ref={index === 0 ? firstSwipeableRef : null}
                     renderRightActions={() => (
                       <Pressable
                         style={styles.deleteButton}
@@ -273,14 +319,14 @@ export function MealReviewModal({
               pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
               isSaving && styles.saveButtonDisabled,
             ]}
-            onPress={handleSave}
+            onPress={currentFoods.length === 0 && !isEditMode ? onClose : handleSave}
             disabled={isSaving}
           >
             <Text style={styles.saveButtonText}>
               {isSaving
-                ? (currentFoods.length === 0 ? 'Deleting...' : 'Saving...')
+                ? (currentFoods.length === 0 && isEditMode ? 'Deleting...' : 'Saving...')
                 : currentFoods.length === 0
-                  ? 'Delete Meal'
+                  ? (isEditMode ? 'Delete Meal' : 'Discard Meal')
                   : isEditMode
                     ? 'Update Meal'
                     : 'Save Meal'}
@@ -392,6 +438,38 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 8,
     marginLeft: 8,
+  },
+  swipeTipBubble: {
+    position: 'absolute',
+    top: -30,
+    alignSelf: 'center',
+    backgroundColor: '#10B981',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 16,
+    zIndex: 100,
+    elevation: 5,
+  },
+  swipeTipText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  swipeTipArrow: {
+    width: 0,
+    height: 0,
+    backgroundColor: 'transparent',
+    borderStyle: 'solid',
+    borderLeftWidth: 8,
+    borderRightWidth: 8,
+    borderTopWidth: 8,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: '#10B981',
+    position: 'absolute',
+    bottom: -8,
+    left: '50%',
+    marginLeft: -8,
   },
   totalsContainer: {
     borderTopWidth: 1,

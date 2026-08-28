@@ -138,11 +138,11 @@ export default function SettingsScreen() {
               onPress={() => {
                 showAlert('Nutrition Goals', 'How would you like to proceed?', [
                   { text: 'Cancel', style: 'cancel' },
-                  { text: 'Edit Targets Directly', onPress: () => {
+                  { text: 'Edit Manually', onPress: () => {
                       setOnboardingInitialStep('review');
                       setOnboardingVisible(true);
                   }},
-                  { text: 'Answer Questions', onPress: () => {
+                  { text: 'Take Quiz', onPress: () => {
                       setOnboardingInitialStep('intro');
                       setOnboardingVisible(true);
                   }}
@@ -211,6 +211,9 @@ export default function SettingsScreen() {
               style={styles.listItem}
               onPress={async () => {
                 await AsyncStorage.removeItem('has_seen_walkthrough');
+                await AsyncStorage.removeItem('has_seen_add_food_tip');
+                await AsyncStorage.removeItem('has_seen_swipe_delete_tip');
+                await AsyncStorage.removeItem('has_seen_swipe_delete_tip_home');
                 router.replace('/(tabs)');
               }}
             >
@@ -219,8 +222,8 @@ export default function SettingsScreen() {
                   <Ionicons name="compass-outline" size={20} color="#6366F1" />
                 </View>
                 <View>
-                  <Text style={[styles.listItemTitle, { color: textPrimary }]}>Show App Tour</Text>
-                  <Text style={[styles.listItemSubtitle, { color: textSecondary }]}>Replay the guided walkthrough</Text>
+                  <Text style={[styles.listItemTitle, { color: textPrimary }]}>Reset Tutorials & Tips</Text>
+                  <Text style={[styles.listItemSubtitle, { color: textSecondary }]}>Replay the tour and tooltip animations</Text>
                 </View>
               </View>
               <Ionicons name="chevron-forward" size={20} color={textSecondary} />
