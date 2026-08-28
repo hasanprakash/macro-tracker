@@ -217,8 +217,10 @@ export default function HomeScreen() {
         setUserName(profileData.full_name || profileData.display_name || user.email?.split('@')[0] || 'User');
         setProfile(profileData as Profile);
         
+        let needsOnboarding = false;
         if (profileData && !profileData.target_calories) {
           setShowOnboarding(true);
+          needsOnboarding = true;
         }
 
         // Calculate Day Number
@@ -234,9 +236,11 @@ export default function HomeScreen() {
         }
 
         // Check if we should show walkthrough
-        const hasSeenWalkthrough = await AsyncStorage.getItem('has_seen_walkthrough');
-        if (!hasSeenWalkthrough) {
-          setShowWalkthrough(true);
+        if (!needsOnboarding) {
+          const hasSeenWalkthrough = await AsyncStorage.getItem('has_seen_walkthrough');
+          if (!hasSeenWalkthrough) {
+            setShowWalkthrough(true);
+          }
         }
 
         fetchDashboardData(user.id, selectedDate);
@@ -350,6 +354,12 @@ export default function HomeScreen() {
     
     setProfile(data as Profile);
     setShowOnboarding(false);
+    
+    // Check walkthrough after onboarding completes
+    const hasSeenWalkthrough = await AsyncStorage.getItem('has_seen_walkthrough');
+    if (!hasSeenWalkthrough) {
+      setTimeout(() => setShowWalkthrough(true), 500);
+    }
   };
 
   const handleSkipOnboarding = async () => {
@@ -918,7 +928,14 @@ export default function HomeScreen() {
       <OnboardingModal
         visible={showOnboarding}
         onSave={handleSaveProfile}
-        onSkip={() => setShowOnboarding(false)}
+        onSkip={() => {
+          setShowOnboarding(false);
+          AsyncStorage.getItem('has_seen_walkthrough').then((hasSeen) => {
+            if (!hasSeen) {
+              setTimeout(() => setShowWalkthrough(true), 500);
+            }
+          });
+        }}
       />
 
       <CalendarModal

@@ -29,12 +29,15 @@ export default function SettingsScreen() {
   const [tipsVisible, setTipsVisible] = useState(false);
   const [hasSeenTips, setHasSeenTips] = useState(true);
   const [aiSettings, setAiSettings] = useState({ byok_enabled: false, has_custom_key: false });
+  const [currentProfile, setCurrentProfile] = useState<Profile | null>(null);
+  const [onboardingInitialStep, setOnboardingInitialStep] = useState<'intro' | 'review'>('intro');
 
   const pulseAnim = useSharedValue(1);
 
   useEffect(() => {
     fetchAiSettings();
     loadTipsState();
+    fetchProfile();
   }, []);
 
   useEffect(() => {
@@ -71,6 +74,19 @@ export default function SettingsScreen() {
     transform: [{ scale: pulseAnim.value }],
   }));
 
+  const fetchProfile = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+      if (data) {
+        setCurrentProfile(data as Profile);
+      }
+    } catch (e) {
+      console.log('Error fetching profile:', e);
+    }
+  };
+
   const fetchAiSettings = async () => {
     try {
       const { data, error } = await supabase.rpc('get_ai_settings');
@@ -96,6 +112,7 @@ export default function SettingsScreen() {
       
       showAlert('Success', 'Goals updated successfully');
       setOnboardingVisible(false);
+      fetchProfile(); // Refresh profile after save
     } catch (e: any) {
       showAlert('Error', e.message);
     }
@@ -118,7 +135,19 @@ export default function SettingsScreen() {
           <View style={[styles.card, { backgroundColor: bgSurface, borderColor }]}>
             <Pressable 
               style={styles.listItem}
-              onPress={() => setOnboardingVisible(true)}
+              onPress={() => {
+                showAlert('Nutrition Goals', 'How would you like to proceed?', [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Edit Targets Directly', onPress: () => {
+                      setOnboardingInitialStep('review');
+                      setOnboardingVisible(true);
+                  }},
+                  { text: 'Answer Questions', onPress: () => {
+                      setOnboardingInitialStep('intro');
+                      setOnboardingVisible(true);
+                  }}
+                ]);
+              }}
             >
               <View style={styles.listItemLeft}>
                 <View style={[styles.iconContainer, { backgroundColor: 'rgba(99, 102, 241, 0.15)' }]}>
@@ -230,6 +259,8 @@ export default function SettingsScreen() {
         visible={onboardingVisible}
         onSave={handleSaveOnboarding}
         onSkip={() => setOnboardingVisible(false)}
+        initialStep={onboardingInitialStep}
+        initialProfile={currentProfile}
       />
 
       <BYOKModal

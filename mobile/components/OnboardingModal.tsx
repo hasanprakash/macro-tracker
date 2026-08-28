@@ -15,18 +15,22 @@ import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import type { Profile } from '@/lib/types';
 import { TipsModal } from '@/components/TipsModal';
+import { useAlert } from '@/components/ui/CustomAlert';
 
 interface OnboardingModalProps {
   visible: boolean;
   onSave: (profileData: Partial<Profile>) => Promise<void>;
   onSkip: () => void;
+  initialStep?: Step;
+  initialProfile?: Profile | null;
 }
 
 type Step = 'intro' | 'age-gender' | 'height-weight' | 'goal' | 'target-weight' | 'review';
 
-export function OnboardingModal({ visible, onSave, onSkip }: OnboardingModalProps) {
+export function OnboardingModal({ visible, onSave, onSkip, initialStep, initialProfile }: OnboardingModalProps) {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
+  const { showAlert } = useAlert();
 
   const [step, setStep] = useState<Step>('intro');
   const [isSaving, setIsSaving] = useState(false);
@@ -49,6 +53,33 @@ export function OnboardingModal({ visible, onSave, onSkip }: OnboardingModalProp
   const [targetProtein, setTargetProtein] = useState('');
   const [targetCarbs, setTargetCarbs] = useState('');
   const [targetFat, setTargetFat] = useState('');
+
+  React.useEffect(() => {
+    if (visible) {
+      setStep(initialStep || 'intro');
+      if (initialProfile) {
+        setAge(initialProfile.age?.toString() || '');
+        setGender((initialProfile.gender as any) || null);
+        setHeight(initialProfile.height_cm?.toString() || '');
+        setWeight(initialProfile.weight_kg?.toString() || '');
+        setGoal((initialProfile.goal as any) || null);
+        setTargetWeight(initialProfile.target_weight_kg?.toString() || '');
+        
+        setTargetCalories(initialProfile.target_calories?.toString() || '');
+        setTargetProtein(initialProfile.target_protein?.toString() || '');
+        setTargetCarbs(initialProfile.target_carbs?.toString() || '');
+        setTargetFat(initialProfile.target_fat?.toString() || '');
+        setTargetSteps(initialProfile.target_steps?.toString() || '');
+        setMaintenanceCalories(initialProfile.maintenance_calories?.toString() || '');
+        setUnderEatingThreshold(initialProfile.under_eating_threshold?.toString() || '');
+      } else if (initialStep !== 'review') {
+        setAge(''); setGender(null); setHeight(''); setWeight('');
+        setGoal(null); setTargetWeight(''); setTargetCalories('');
+        setTargetProtein(''); setTargetCarbs(''); setTargetFat('');
+        setTargetSteps(''); setMaintenanceCalories(''); setUnderEatingThreshold('');
+      }
+    }
+  }, [visible, initialStep, initialProfile]);
 
   const cardBg = isDark ? '#1E293B' : '#FFFFFF';
   const textPrimary = isDark ? '#F8FAFC' : '#0F172A';
@@ -101,8 +132,10 @@ export function OnboardingModal({ visible, onSave, onSkip }: OnboardingModalProp
 
     // 3. Goal adjustments
     let calTarget = tdee;
-    if (goal === 'Lose weight') calTarget -= 450;
-    else if (goal === 'Gain weight') calTarget += 300;
+    if (goal === 'Lose weight') {
+      calTarget -= 450;
+      calTarget = Math.max(calTarget, bmr);
+    } else if (goal === 'Gain weight') calTarget += 300;
 
     // 4. Macros & Specific Logic
     const bmi = w / ((h / 100) * (h / 100));
@@ -135,7 +168,35 @@ export function OnboardingModal({ visible, onSave, onSkip }: OnboardingModalProp
     setTargetCarbs(Math.round(cTarget).toString());
   };
 
-  const submitProfile = async () => {
+  const handleCaloriesChange = (text: string) => {
+    setTargetCalories(text);
+    const cals = parseFloat(text);
+    if (!isNaN(cals) && cals > 0) {
+      const pCals = cals * 0.3;
+      const cCals = cals * 0.4;
+      const fCals = cals * 0.3;
+      setTargetProtein((pCals / 4).toFixed(0));
+      setTargetCarbs((cCals / 4).toFixed(0));
+      setTargetFat((fCals / 9).toFixed(0));
+    }
+  };
+
+  const handleProteinChange = (text: string) => {
+    setTargetProtein(text);
+    const prot = parseFloat(text);
+    const cals = parseFloat(targetCalories);
+    if (!isNaN(prot) && !isNaN(cals) && cals > 0) {
+      const pCals = prot * 4;
+      const remainingCals = Math.max(0, cals - pCals);
+      // 40% carbs, 30% fat ratio => 4:3 ratio of the remaining 70%
+      const cCals = remainingCals * (4 / 7);
+      const fCals = remainingCals * (3 / 7);
+      setTargetCarbs((cCals / 4).toFixed(0));
+      setTargetFat((fCals / 9).toFixed(0));
+    }
+  };
+
+  const performSave = async (forceUnderEatingThreshold?: number) => {
     setIsSaving(true);
     await onSave({
       age: parseInt(age) || null,
@@ -145,8 +206,8 @@ export function OnboardingModal({ visible, onSave, onSkip }: OnboardingModalProp
       goal,
       target_weight_kg: targetWeight ? parseFloat(targetWeight) : null,
       activity_level: 'Sedentary',
-      maintenance_calories: parseFloat(maintenanceCalories) || null,
-      under_eating_threshold: parseFloat(underEatingThreshold) || null,
+      maintenance_calories: forceUnderEatingThreshold || parseFloat(maintenanceCalories) || null,
+      under_eating_threshold: forceUnderEatingThreshold || parseFloat(underEatingThreshold) || null,
       target_steps: parseInt(targetSteps) || null,
       target_calories: parseFloat(targetCalories) || 2000,
       target_protein: parseFloat(targetProtein) || 150,
@@ -154,6 +215,70 @@ export function OnboardingModal({ visible, onSave, onSkip }: OnboardingModalProp
       target_fat: parseFloat(targetFat) || 65,
     });
     setIsSaving(false);
+  };
+
+  const submitProfile = () => {
+    const cals = parseFloat(targetCalories);
+    const bmrValue = parseFloat(underEatingThreshold);
+    const prot = parseFloat(targetProtein);
+    const w = parseFloat(weight);
+
+    const showWarning = (title: string, message: string, proceedAction: () => void) => {
+      showAlert(title, message, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Proceed', onPress: proceedAction }
+      ]);
+    };
+
+    if (!isNaN(cals)) {
+      if (cals < 1200) {
+        showWarning(
+          'Calories Very Low',
+          'Target calories below 1200 can cause fatigue and muscle loss. Are you sure you want to proceed?',
+          () => performSave(cals)
+        );
+        return;
+      }
+      if (!isNaN(bmrValue)) {
+        if (cals < bmrValue) {
+          showWarning(
+            'Calories Below BMR',
+            'Target calories are lower than your Basal Metabolic Rate (BMR) for health reasons. Are you sure?',
+            () => performSave()
+          );
+          return;
+        }
+        if (cals > bmrValue * 1.9) {
+          showWarning(
+            'Calories Too High',
+            'Target calories exceed the safe limit. Are you sure?',
+            () => performSave()
+          );
+          return;
+        }
+      }
+    }
+
+    if (!isNaN(prot) && !isNaN(w)) {
+      if (prot < w * 0.8) {
+        showWarning(
+          'Protein Too Low',
+          'Protein intake is below the recommended 0.8g per kg of body weight for basic health maintenance. Are you sure?',
+          () => performSave()
+        );
+        return;
+      }
+      if (prot > w * 2.4) {
+        showWarning(
+          'Protein Too High',
+          'Protein intake exceeds the recommended 2.4g per kg of body weight. Are you sure?',
+          () => performSave()
+        );
+        return;
+      }
+    }
+
+    performSave();
   };
 
   const canProceed = () => {
@@ -200,13 +325,20 @@ export function OnboardingModal({ visible, onSave, onSkip }: OnboardingModalProp
     const weeklyChange = (targetDiff / 1100).toFixed(2);
     const actionStr = goal === 'Lose weight' ? 'lose' : (goal === 'Gain weight' ? 'gain' : 'maintain');
 
+    let weeksToGoalText = '';
+    if ((goal === 'Lose weight' || goal === 'Gain weight') && parseFloat(weeklyChange) > 0 && targetWeight && weight) {
+      const weightDiff = Math.abs(parseFloat(weight) - parseFloat(targetWeight));
+      const weeksToGoal = Math.ceil(weightDiff / parseFloat(weeklyChange));
+      weeksToGoalText = ` It will take approximately ${weeksToGoal} weeks to reach your target weight.`;
+    }
+
     return (
       <View style={[styles.infoBox, { backgroundColor: 'rgba(59, 130, 246, 0.1)' }]}>
         <Ionicons name="information-circle" size={24} color="#3B82F6" style={{ marginTop: 2 }} />
         <View style={{ flex: 1, marginLeft: 12 }}>
           <Text style={[styles.infoTitle, { color: textPrimary }]}>BMR Estimate</Text>
           <Text style={[styles.infoText, { color: textSecondary }]}>
-            Everyone's Basal Metabolic Rate (BMR) varies. Based on these calculated targets, we estimate you will {actionStr} <Text style={{ fontWeight: '600', color: textPrimary }}>~{weeklyChange} kg</Text> per week. 
+            Everyone's Basal Metabolic Rate (BMR) varies. Based on these calculated targets, we estimate you will {actionStr} <Text style={{ fontWeight: '600', color: textPrimary }}>~{weeklyChange} kg</Text> per week.{weeksToGoalText}
           </Text>
           <Text style={[styles.infoText, { color: textSecondary, marginTop: 8 }]}>
             We will adjust your calorie targets as you progress toward your accurate BMR. Please note that BMR can be affected negatively by poor health and under-eating, and positively by gaining muscle mass.
@@ -351,28 +483,62 @@ export function OnboardingModal({ visible, onSave, onSkip }: OnboardingModalProp
     <View style={styles.stepContainer}>
       <Text style={[styles.title, { color: textPrimary }]}>Your Targets</Text>
       <Text style={[styles.subtitle, { color: textSecondary }]}>
-        Here are your calculated daily targets.
+        Here are your calculated daily targets. You can tap on any number to edit it.
       </Text>
       
       <View style={styles.reviewGrid}>
         <View style={[styles.reviewCard, { backgroundColor: inputBg, borderColor }]}>
-          <Text style={[styles.reviewValue, { color: '#6366F1' }]}>{targetCalories}</Text>
+          <TextInput
+            style={[styles.reviewValue, { color: '#6366F1', textAlign: 'center', padding: 0, minWidth: 60 }]}
+            keyboardType="numeric"
+            value={targetCalories}
+            onChangeText={handleCaloriesChange}
+          />
           <Text style={[styles.reviewLabel, { color: textSecondary }]}>Calories</Text>
         </View>
         <View style={[styles.reviewCard, { backgroundColor: inputBg, borderColor }]}>
-          <Text style={[styles.reviewValue, { color: '#F43F5E' }]}>{targetProtein}g</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+            <TextInput
+              style={[styles.reviewValue, { color: '#F43F5E', textAlign: 'center', padding: 0, minWidth: 40 }]}
+              keyboardType="numeric"
+              value={targetProtein}
+              onChangeText={handleProteinChange}
+            />
+            <Text style={[styles.reviewValue, { color: '#F43F5E', fontSize: 16 }]}>g</Text>
+          </View>
           <Text style={[styles.reviewLabel, { color: textSecondary }]}>Protein</Text>
         </View>
         <View style={[styles.reviewCard, { backgroundColor: inputBg, borderColor }]}>
-          <Text style={[styles.reviewValue, { color: '#60A5FA' }]}>{targetCarbs}g</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+            <TextInput
+              style={[styles.reviewValue, { color: '#60A5FA', textAlign: 'center', padding: 0, minWidth: 40 }]}
+              keyboardType="numeric"
+              value={targetCarbs}
+              onChangeText={setTargetCarbs}
+            />
+            <Text style={[styles.reviewValue, { color: '#60A5FA', fontSize: 16 }]}>g</Text>
+          </View>
           <Text style={[styles.reviewLabel, { color: textSecondary }]}>Carbs</Text>
         </View>
         <View style={[styles.reviewCard, { backgroundColor: inputBg, borderColor }]}>
-          <Text style={[styles.reviewValue, { color: '#FBBF24' }]}>{targetFat}g</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+            <TextInput
+              style={[styles.reviewValue, { color: '#FBBF24', textAlign: 'center', padding: 0, minWidth: 40 }]}
+              keyboardType="numeric"
+              value={targetFat}
+              onChangeText={setTargetFat}
+            />
+            <Text style={[styles.reviewValue, { color: '#FBBF24', fontSize: 16 }]}>g</Text>
+          </View>
           <Text style={[styles.reviewLabel, { color: textSecondary }]}>Fat</Text>
         </View>
         <View style={[styles.reviewCard, { backgroundColor: inputBg, borderColor }]}>
-          <Text style={[styles.reviewValue, { color: '#10B981' }]}>{targetSteps}</Text>
+          <TextInput
+            style={[styles.reviewValue, { color: '#10B981', textAlign: 'center', padding: 0, minWidth: 60 }]}
+            keyboardType="numeric"
+            value={targetSteps}
+            onChangeText={setTargetSteps}
+          />
           <Text style={[styles.reviewLabel, { color: textSecondary }]}>Steps/Day</Text>
         </View>
       </View>
