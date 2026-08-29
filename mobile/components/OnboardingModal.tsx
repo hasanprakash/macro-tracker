@@ -16,6 +16,14 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import type { Profile } from '@/lib/types';
 import { TipsModal } from '@/components/TipsModal';
 import { useAlert } from '@/components/ui/CustomAlert';
+import { ProteinSlider } from '@/components/ProteinSlider';
+import {
+  calculateNutritionTargets,
+  getDefaultProteinMultiplier,
+  getProteinBaselineInfo,
+  type ProteinBaselineInfo,
+  type GoalType,
+} from '@/lib/nutrition';
 
 interface OnboardingModalProps {
   visible: boolean;
@@ -41,9 +49,8 @@ export function OnboardingModal({ visible, onSave, onSkip, initialStep, initialP
   const [gender, setGender] = useState<'Male' | 'Female' | null>(null);
   const [height, setHeight] = useState(''); // cm
   const [weight, setWeight] = useState(''); // kg
-  const [goal, setGoal] = useState<'Lose weight' | 'Maintain weight' | 'Gain weight' | 'Just track my food' | null>(null);
+  const [goal, setGoal] = useState<GoalType | null>(null);
   const [targetWeight, setTargetWeight] = useState(''); // kg
-
 
   // Calculated Targets State
   const [targetCalories, setTargetCalories] = useState('');
@@ -53,6 +60,11 @@ export function OnboardingModal({ visible, onSave, onSkip, initialStep, initialP
   const [targetProtein, setTargetProtein] = useState('');
   const [targetCarbs, setTargetCarbs] = useState('');
   const [targetFat, setTargetFat] = useState('');
+
+  // Protein Slider & Baseline State
+  const [proteinMultiplier, setProteinMultiplier] = useState<number>(2.0);
+  const [weightBaseline, setWeightBaseline] = useState<number>(0);
+  const [baselineInfo, setBaselineInfo] = useState<ProteinBaselineInfo | undefined>(undefined);
 
   React.useEffect(() => {
     if (visible) {
@@ -72,11 +84,26 @@ export function OnboardingModal({ visible, onSave, onSkip, initialStep, initialP
         setTargetSteps(initialProfile.target_steps?.toString() || '');
         setMaintenanceCalories(initialProfile.maintenance_calories?.toString() || '');
         setUnderEatingThreshold(initialProfile.under_eating_threshold?.toString() || '');
+
+        const w = initialProfile.weight_kg || 70;
+        const tw = initialProfile.target_weight_kg;
+        const g = (initialProfile.goal as any) || null;
+        const bInfo = getProteinBaselineInfo(w, tw, g);
+        setBaselineInfo(bInfo);
+        setWeightBaseline(bInfo.baseline);
+
+        if (initialProfile.target_protein && bInfo.baseline > 0) {
+          const derivedMult = initialProfile.target_protein / bInfo.baseline;
+          setProteinMultiplier(Math.min(2.2, Math.max(1.6, Math.round(derivedMult * 10) / 10)));
+        } else {
+          setProteinMultiplier(getDefaultProteinMultiplier(g));
+        }
       } else if (initialStep !== 'review') {
         setAge(''); setGender(null); setHeight(''); setWeight('');
         setGoal(null); setTargetWeight(''); setTargetCalories('');
         setTargetProtein(''); setTargetCarbs(''); setTargetFat('');
         setTargetSteps(''); setMaintenanceCalories(''); setUnderEatingThreshold('');
+        setProteinMultiplier(2.0); setWeightBaseline(0); setBaselineInfo(undefined);
       }
     }
   }, [visible, initialStep, initialProfile]);
@@ -117,82 +144,118 @@ export function OnboardingModal({ visible, onSave, onSkip, initialStep, initialP
   };
 
   const calculateTargets = () => {
-    const a = parseInt(age);
-    const h = parseFloat(height);
-    const w = parseFloat(weight);
-    
-    // 1. Mifflin-St Jeor BMR
-    let bmr = 10 * w + 6.25 * h - 5 * a;
-    bmr += gender === 'Male' ? 5 : -161;
+    const a = parseInt(age) || 25;
+    const h = parseFloat(height) || 170;
+    const w = parseFloat(weight) || 70;
+    const tw = targetWeight ? parseFloat(targetWeight) : null;
 
-    // 2. Activity Level Multiplier
-    let pal = 1.2;
+    const result = calculateNutritionTargets({
+      age: a,
+      gender,
+      heightCm: h,
+      weightKg: w,
+      goal,
+      targetWeightKg: tw,
+    });
 
-    let tdee = bmr * pal;
-
-    // 3. Goal adjustments
-    let calTarget = tdee;
-    if (goal === 'Lose weight') {
-      calTarget -= 450;
-      calTarget = Math.max(calTarget, bmr);
-    } else if (goal === 'Gain weight') calTarget += 300;
-
-    // 4. Macros & Specific Logic
-    const bmi = w / ((h / 100) * (h / 100));
-    const activeWeight = (bmi >= 30 && goal === 'Lose weight') ? (targetWeight ? parseFloat(targetWeight) : w) : w;
-    const proteinMultiplier = (bmi >= 30 && goal === 'Lose weight') ? 1.5 : 1.8;
-    
-    const pTarget = activeWeight * proteinMultiplier;
-    const pCals = pTarget * 4;
-
-    let fatPercent = 0.30;
-    if (goal === 'Lose weight') fatPercent = 0.20;
-    else if (goal === 'Maintain weight') fatPercent = 0.25;
-    
-    const fCals = calTarget * fatPercent;
-    const fTarget = fCals / 9;
-
-    const cCals = calTarget - pCals - fCals;
-    const cTarget = cCals / 4;
-
-    // 5. Steps
-    let steps = 5000;
-    
-    setMaintenanceCalories(Math.round(tdee).toString());
-    setUnderEatingThreshold(Math.round(bmr).toString());
-    setTargetSteps(steps.toString());
-    
-    setTargetCalories(Math.round(calTarget).toString());
-    setTargetProtein(Math.round(pTarget).toString());
-    setTargetFat(Math.round(fTarget).toString());
-    setTargetCarbs(Math.round(cTarget).toString());
+    setMaintenanceCalories(result.tdee.toString());
+    setUnderEatingThreshold(result.bmr.toString());
+    setTargetSteps(result.targetSteps.toString());
+    setTargetCalories(result.targetCalories.toString());
+    setTargetProtein(result.targetProtein.toString());
+    setTargetFat(result.targetFat.toString());
+    setTargetCarbs(result.targetCarbs.toString());
+    setProteinMultiplier(result.proteinMultiplier);
+    setWeightBaseline(result.weightBaseline);
+    setBaselineInfo(result.baselineInfo);
   };
 
   const handleCaloriesChange = (text: string) => {
     setTargetCalories(text);
-    const cals = parseFloat(text);
-    if (!isNaN(cals) && cals > 0) {
-      const pCals = cals * 0.3;
-      const cCals = cals * 0.4;
-      const fCals = cals * 0.3;
-      setTargetProtein((pCals / 4).toFixed(0));
-      setTargetCarbs((cCals / 4).toFixed(0));
-      setTargetFat((fCals / 9).toFixed(0));
+    const newCals = parseFloat(text);
+
+    if (!isNaN(newCals) && newCals > 0) {
+      // Deterministic absolute calculation (55% Carbs / 45% Fat with 30% total calorie fat cap)
+      const baseline = weightBaseline > 0 ? weightBaseline : (parseFloat(weight) || 70);
+      const mult = proteinMultiplier || getDefaultProteinMultiplier(goal);
+      const pTarget = Math.round(mult * baseline);
+      const pCals = pTarget * 4;
+
+      const remainingCals = Math.max(0, newCals - pCals);
+      const rawFatCals = remainingCals * 0.45;
+      const maxFatCals = newCals * 0.30;
+      const fatCals = Math.min(rawFatCals, maxFatCals);
+      const carbCals = Math.max(0, remainingCals - fatCals);
+
+      const cTarget = Math.round(carbCals / 4);
+      const fTarget = Math.round(fatCals / 8);
+
+      setTargetProtein(pTarget.toString());
+      setTargetCarbs(cTarget.toString());
+      setTargetFat(fTarget.toString());
     }
+  };
+
+  const handleProteinSliderChange = (newMult: number) => {
+    setProteinMultiplier(newMult);
+    const baseline = weightBaseline > 0 ? weightBaseline : (parseFloat(weight) || 70);
+    const newProtGrams = Math.round(newMult * baseline);
+    
+    // Shift calories to/from carbs (4 kcal/g for both, fat is 8 kcal/g)
+    const cals = parseFloat(targetCalories) || 0;
+    const fat = parseFloat(targetFat) || 0;
+    if (cals > 0) {
+      const remainingForCarbs = Math.max(0, cals - (newProtGrams * 4) - (fat * 8));
+      setTargetCarbs(Math.round(remainingForCarbs / 4).toString());
+    }
+    setTargetProtein(newProtGrams.toString());
   };
 
   const handleProteinChange = (text: string) => {
     setTargetProtein(text);
     const prot = parseFloat(text);
-    const cals = parseFloat(targetCalories);
-    if (!isNaN(prot) && !isNaN(cals) && cals > 0) {
-      const pCals = prot * 4;
-      const remainingCals = Math.max(0, cals - pCals);
-      // 40% carbs, 30% fat ratio => 4:3 ratio of the remaining 70%
-      const cCals = remainingCals * (4 / 7);
-      const fCals = remainingCals * (3 / 7);
-      setTargetCarbs((cCals / 4).toFixed(0));
-      setTargetFat((fCals / 9).toFixed(0));
+    if (!isNaN(prot)) {
+      // 1g protein = 4 kcal, shift difference to carbs so total calories remain identical
+      const cals = parseFloat(targetCalories) || 0;
+      const fat = parseFloat(targetFat) || 0;
+      if (cals > 0) {
+        const remainingForCarbs = Math.max(0, cals - (prot * 4) - (fat * 8));
+        setTargetCarbs(Math.round(remainingForCarbs / 4).toString());
+      }
+      if (weightBaseline > 0) {
+        const derivedMult = prot / weightBaseline;
+        if (derivedMult >= 1.6 && derivedMult <= 2.2) {
+          setProteinMultiplier(Math.round(derivedMult * 10) / 10);
+        }
+      }
+    }
+  };
+
+  const handleCarbsChange = (text: string) => {
+    setTargetCarbs(text);
+    const newCarbs = parseFloat(text);
+    if (!isNaN(newCarbs)) {
+      const cals = parseFloat(targetCalories) || 0;
+      const prot = parseFloat(targetProtein) || 0;
+      if (cals > 0) {
+        // Shift difference directly to/from fat (8 cal/g), keeping total calories and protein fixed
+        const remainingForFat = Math.max(0, cals - (prot * 4) - (newCarbs * 4));
+        setTargetFat(Math.round(remainingForFat / 8).toString());
+      }
+    }
+  };
+
+  const handleFatChange = (text: string) => {
+    setTargetFat(text);
+    const newFat = parseFloat(text);
+    if (!isNaN(newFat)) {
+      const cals = parseFloat(targetCalories) || 0;
+      const prot = parseFloat(targetProtein) || 0;
+      if (cals > 0) {
+        // Shift 100% of fat calories (8 cal/g) directly to/from carbs (4 cal/g), keeping total calories fixed
+        const remainingForCarbs = Math.max(0, cals - (prot * 4) - (newFat * 8));
+        setTargetCarbs(Math.round(remainingForCarbs / 4).toString());
+      }
     }
   };
 
@@ -231,23 +294,29 @@ export function OnboardingModal({ visible, onSave, onSkip, initialStep, initialP
     };
 
     if (!isNaN(cals)) {
-      if (cals < 1200) {
+      const minCalories = gender === 'Male' ? 1500 : 1200;
+      const genderLabel = gender === 'Male' ? 'men' : 'women';
+
+      // 1. Check if below personalized BMR
+      if (!isNaN(bmrValue) && cals < bmrValue) {
         showWarning(
-          'Calories Very Low',
-          'Target calories below 1200 can cause fatigue and muscle loss. Are you sure you want to proceed?',
+          'Calories Below BMR',
+          `Target calories (${cals} kcal) are lower than your Basal Metabolic Rate (${Math.round(bmrValue)} kcal). Eating below your BMR can cause muscle loss and metabolic slowdown. Are you sure?`,
           () => performSave(cals)
         );
         return;
       }
-      if (!isNaN(bmrValue)) {
-        if (cals < bmrValue) {
-          showWarning(
-            'Calories Below BMR',
-            'Target calories are lower than your Basal Metabolic Rate (BMR) for health reasons. Are you sure?',
-            () => performSave()
-          );
-          return;
-        }
+
+      // 2. Check if below population safety threshold (only if BMR is above the threshold)
+      const effectiveFloor = !isNaN(bmrValue) ? Math.min(minCalories, bmrValue) : minCalories;
+      if (cals < effectiveFloor) {
+        showWarning(
+          'Calories Very Low',
+          `Target calories below ${effectiveFloor} kcal for ${genderLabel} can cause fatigue, hormonal disruption, and muscle loss. Are you sure you want to proceed?`,
+          () => performSave(cals)
+        );
+        return;
+      }
         if (cals > bmrValue * 1.9) {
           showWarning(
             'Calories Too High',
@@ -257,7 +326,6 @@ export function OnboardingModal({ visible, onSave, onSkip, initialStep, initialP
           return;
         }
       }
-    }
 
     if (!isNaN(prot) && !isNaN(w)) {
       if (prot < w * 0.8) {
@@ -292,6 +360,7 @@ export function OnboardingModal({ visible, onSave, onSkip, initialStep, initialP
       if (!targetWeight || isNaN(target)) return false;
       if (goal === 'Lose weight' && target >= current) return false;
       if (goal === 'Gain weight' && target <= current) return false;
+      if (Math.abs(current - target) > 12) return false;
       return true;
     }
     return true;
@@ -453,37 +522,56 @@ export function OnboardingModal({ visible, onSave, onSkip, initialStep, initialP
     </View>
   );
 
-  const renderTargetWeight = () => (
-    <View style={styles.stepContainer}>
-      <Text style={[styles.title, { color: textPrimary }]}>Target Weight</Text>
-      <Text style={[styles.subtitle, { color: textSecondary }]}>
-        Since your goal is to {goal?.toLowerCase()}, what is your target weight?
-      </Text>
-      
-      <Text style={[styles.label, { color: textPrimary, marginTop: 24 }]}>Target Weight (kg)</Text>
-      <TextInput
-        style={[styles.input, { backgroundColor: inputBg, color: textPrimary, borderColor }]}
-        keyboardType="decimal-pad"
-        placeholder={`Current: ${weight} kg`}
-        placeholderTextColor={textSecondary}
-        value={targetWeight}
-        onChangeText={setTargetWeight}
-      />
-      
-      {targetWeight !== '' && goal === 'Lose weight' && parseFloat(targetWeight) >= parseFloat(weight) && (
-        <Text style={styles.errorText}>Target weight must be less than current weight.</Text>
-      )}
-      {targetWeight !== '' && goal === 'Gain weight' && parseFloat(targetWeight) <= parseFloat(weight) && (
-        <Text style={styles.errorText}>Target weight must be greater than current weight.</Text>
-      )}
-    </View>
-  );
+  const renderTargetWeight = () => {
+    const currentW = parseFloat(weight);
+    const targetW = parseFloat(targetWeight);
+    const isTargetNum = !isNaN(targetW) && targetWeight !== '';
+    const diff = isTargetNum ? Math.abs(currentW - targetW) : 0;
+    const isDiffTooLarge = isTargetNum && diff > 12;
+
+    return (
+      <View style={styles.stepContainer}>
+        <Text style={[styles.title, { color: textPrimary }]}>Target Weight</Text>
+        <Text style={[styles.subtitle, { color: textSecondary }]}>
+          Since your goal is to {goal?.toLowerCase()}, what is your target weight?
+        </Text>
+        
+        <Text style={[styles.label, { color: textPrimary, marginTop: 24 }]}>Target Weight (kg)</Text>
+        <TextInput
+          style={[styles.input, { backgroundColor: inputBg, color: textPrimary, borderColor }]}
+          keyboardType="decimal-pad"
+          placeholder={`Current: ${weight} kg`}
+          placeholderTextColor={textSecondary}
+          value={targetWeight}
+          onChangeText={setTargetWeight}
+        />
+        
+        {targetWeight !== '' && goal === 'Lose weight' && targetW >= currentW && (
+          <Text style={styles.errorText}>Target weight must be less than current weight ({weight} kg).</Text>
+        )}
+        {targetWeight !== '' && goal === 'Gain weight' && targetW <= currentW && (
+          <Text style={styles.errorText}>Target weight must be greater than current weight ({weight} kg).</Text>
+        )}
+        {isDiffTooLarge && (
+          <View style={[styles.diffWarningBox, { backgroundColor: isDark ? 'rgba(245, 158, 11, 0.15)' : '#FEF3C7', borderColor: '#F59E0B' }]}>
+            <Ionicons name="information-circle" size={20} color="#D97706" style={{ marginTop: 2 }} />
+            <Text style={[styles.diffWarningText, { color: isDark ? '#FDE68A' : '#92400E' }]}>
+              Target weight difference cannot exceed 12 kg (currently {diff.toFixed(1)} kg). Take it step-by-step—go little by little! You can set a new target once you reach this milestone.
+            </Text>
+          </View>
+        )}
+        <Text style={[styles.tipSubtext, { color: textSecondary, marginTop: 8 }]}>
+          Tip: Aim for a target within 12 kg of your current weight ({weight || 70} kg) for healthy, sustainable progress.
+        </Text>
+      </View>
+    );
+  };
 
   const renderReview = () => (
     <View style={styles.stepContainer}>
       <Text style={[styles.title, { color: textPrimary }]}>Your Targets</Text>
       <Text style={[styles.subtitle, { color: textSecondary }]}>
-        Here are your calculated daily targets. You can tap on any number to edit it.
+        Here are your calculated daily targets. You can adjust your protein via the bar below or tap on any number to edit it.
       </Text>
       
       <View style={styles.reviewGrid}>
@@ -514,7 +602,7 @@ export function OnboardingModal({ visible, onSave, onSkip, initialStep, initialP
               style={[styles.reviewValue, { color: '#60A5FA', textAlign: 'center', padding: 0, minWidth: 40 }]}
               keyboardType="numeric"
               value={targetCarbs}
-              onChangeText={setTargetCarbs}
+              onChangeText={handleCarbsChange}
             />
             <Text style={[styles.reviewValue, { color: '#60A5FA', fontSize: 16 }]}>g</Text>
           </View>
@@ -526,7 +614,7 @@ export function OnboardingModal({ visible, onSave, onSkip, initialStep, initialP
               style={[styles.reviewValue, { color: '#FBBF24', textAlign: 'center', padding: 0, minWidth: 40 }]}
               keyboardType="numeric"
               value={targetFat}
-              onChangeText={setTargetFat}
+              onChangeText={handleFatChange}
             />
             <Text style={[styles.reviewValue, { color: '#FBBF24', fontSize: 16 }]}>g</Text>
           </View>
@@ -542,6 +630,17 @@ export function OnboardingModal({ visible, onSave, onSkip, initialStep, initialP
           <Text style={[styles.reviewLabel, { color: textSecondary }]}>Steps/Day</Text>
         </View>
       </View>
+
+      {/* Protein Adjustment Slider Bar */}
+      <ProteinSlider
+        multiplier={proteinMultiplier}
+        onMultiplierChange={handleProteinSliderChange}
+        weightBaseline={weightBaseline > 0 ? weightBaseline : (parseFloat(weight) || 70)}
+        baselineInfo={baselineInfo}
+        recommendedMultiplier={getDefaultProteinMultiplier(goal)}
+        isDark={isDark}
+        totalGrams={parseFloat(targetProtein) || 0}
+      />
 
       {bmrInfoText()}
     </View>
@@ -760,6 +859,25 @@ const styles = StyleSheet.create({
     color: '#EF4444',
     fontSize: 13,
     marginTop: 8,
+  },
+  diffWarningBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 12,
+    gap: 8,
+  },
+  diffWarningText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  tipSubtext: {
+    fontSize: 13,
+    lineHeight: 18,
   },
   footer: {
     marginTop: 'auto',

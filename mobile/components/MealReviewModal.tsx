@@ -83,8 +83,8 @@ export function MealReviewModal({
   
   const firstSwipeableRef = React.useRef<Swipeable>(null);
   const tipAnim = useSharedValue(0);
-  const tipTimeout1 = React.useRef<NodeJS.Timeout>();
-  const tipTimeout2 = React.useRef<NodeJS.Timeout>();
+  const tipTimeout1 = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tipTimeout2 = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   React.useEffect(() => {
     if (visible && currentFoods.length > 0) {
@@ -134,11 +134,23 @@ export function MealReviewModal({
 
   const handleQuantityChange = useCallback(
     (index: number, value: string) => {
-      const numericValue = parseFloat(value) || 0;
+      // Strip anything that is not a digit or a decimal point
+      let sanitizedValue = value.replace(/[^0-9.]/g, '');
+      
+      // Ensure only one decimal point exists
+      const parts = sanitizedValue.split('.');
+      if (parts.length > 2) {
+        sanitizedValue = parts[0] + '.' + parts.slice(1).join('');
+      }
+
+      const numericValue = parseFloat(sanitizedValue) || 0;
+      
       setCurrentFoods((prev) => {
         const updated = [...prev];
         // Recalculate proportionally from the *original* food item's values
-        updated[index] = recalculateFoodItem(originalFoods[index], numericValue);
+        const recalculated = recalculateFoodItem(originalFoods[index], numericValue);
+        // Store _quantityStr to preserve things like "1." or "1.0" while typing
+        updated[index] = { ...recalculated, quantity: numericValue, _quantityStr: sanitizedValue } as any;
         return updated;
       });
     },
@@ -266,9 +278,9 @@ export function MealReviewModal({
                             styles.quantityInput,
                             { backgroundColor: inputBg, color: textPrimary, borderColor },
                           ]}
-                          value={food.quantity.toString()}
+                          value={(food as any)._quantityStr !== undefined ? (food as any)._quantityStr : (food.quantity ? food.quantity.toString() : '')}
                           onChangeText={(v) => handleQuantityChange(index, v)}
-                          keyboardType="numeric"
+                          keyboardType="decimal-pad"
                           selectTextOnFocus
                         />
                         <Text style={[styles.unitText, { color: textSecondary }]}>{food.unit}</Text>

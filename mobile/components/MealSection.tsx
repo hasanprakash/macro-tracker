@@ -38,8 +38,8 @@ export function MealSection({ title, icon, color, entries, onAddPress, onDeleteE
 
   const firstSwipeableRef = React.useRef<Swipeable>(null);
   const tipAnim = useSharedValue(0);
-  const tipTimeout1 = React.useRef<NodeJS.Timeout>();
-  const tipTimeout2 = React.useRef<NodeJS.Timeout>();
+  const tipTimeout1 = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tipTimeout2 = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   React.useEffect(() => {
     if (expanded && entries.length > 0) {

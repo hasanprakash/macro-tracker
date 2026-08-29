@@ -195,7 +195,7 @@ export function SpotlightWalkthrough({
   }, [targetRefs, scrollViewRef, scrollOffsetRef, measureTarget, rootRef]);
 
   useEffect(() => {
-    let timeout: NodeJS.Timeout;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
     if (visible) {
       setCurrentStep(0);
       // Initial delay to let the home screen render fully

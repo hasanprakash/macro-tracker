@@ -7,6 +7,8 @@ import Animated, {
   withTiming,
   withDelay,
   withSpring,
+  withRepeat,
+  withSequence,
   Easing,
   useAnimatedProps,
 } from 'react-native-reanimated';
@@ -298,6 +300,39 @@ export function DailySummaryCard({
   const carbsCardStyle = useAnimatedStyle(() => ({ opacity: carbsOpacity.value }));
   const fatCardStyle = useAnimatedStyle(() => ({ opacity: fatOpacity.value }));
 
+  // Gentle breathing animation for undereating indicator
+  const breathingScale = useSharedValue(1);
+  const breathingOpacity = useSharedValue(0.85);
+
+  useEffect(() => {
+    if (isUnderEating) {
+      breathingScale.value = withRepeat(
+        withSequence(
+          withTiming(1.15, { duration: 1500, easing: Easing.inOut(Easing.ease) }),
+          withTiming(1.0, { duration: 1500, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1,
+        true
+      );
+      breathingOpacity.value = withRepeat(
+        withSequence(
+          withTiming(1.0, { duration: 1500, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0.75, { duration: 1500, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1,
+        true
+      );
+    } else {
+      breathingScale.value = 1;
+      breathingOpacity.value = 1;
+    }
+  }, [isUnderEating]);
+
+  const breathingStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: breathingScale.value }],
+    opacity: breathingOpacity.value,
+  }));
+
   const handleInfoPress = () => {
     if (!underEatingThreshold) return;
     const diff = Math.round(underEatingThreshold - calories);
@@ -313,7 +348,9 @@ export function DailySummaryCard({
         
         {isUnderEating && (
           <Pressable style={styles.infoButton} onPress={handleInfoPress}>
-            <Ionicons name="information-circle" size={24} color="#EF4444" />
+            <Animated.View style={breathingStyle}>
+              <Ionicons name="information-circle" size={24} color="#EF4444" />
+            </Animated.View>
           </Pressable>
         )}
         
