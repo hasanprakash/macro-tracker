@@ -372,10 +372,36 @@ export default function HomeScreen() {
         body: { text, weight, idempotency_key: idempotencyKey }
       });
       if (error) throw error;
-      if (data?.error) throw new Error(data.error);
+      if (data?.error) {
+        const isDaily = data?.is_daily_limit || data.error.includes('daily limit') || data.error.includes('add your own API key');
+        if (isDaily) {
+          showAlert(
+            'Daily Limit Reached',
+            data.error,
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Settings', onPress: () => router.push('/settings') }
+            ]
+          );
+          return null;
+        }
+        throw new Error(data.error);
+      }
       return data.data;
     } catch (err: any) {
-      showAlert('Analysis Failed', err.message || 'Could not analyze exercise.');
+      const isDaily = err.message?.includes('daily limit') || err.message?.includes('add your own API key');
+      if (isDaily) {
+        showAlert(
+          'Daily Limit Reached',
+          err.message,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Settings', onPress: () => router.push('/settings') }
+          ]
+        );
+      } else {
+        showAlert('Analysis Failed', err.message || 'Could not analyze exercise.');
+      }
       throw err;
     } finally {
       setScanningType(null);
@@ -462,7 +488,7 @@ export default function HomeScreen() {
     setAddModalVisible(true);
   };
 
-  // Step 1: Call Gemini (with Idempotency Key)
+  // Step 1: Call Gemini (with Idempotency Key & Rate Limit Handling)
   const handleAnalyze = async (text?: string, imageBase64?: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     setScanningType('meal');
@@ -473,14 +499,51 @@ export default function HomeScreen() {
       });
       
       if (error) throw error;
-      if (data?.error) throw new Error(data.error);
+      if (data?.error) {
+        const isSizeError = data.error.includes('too large') || data.error.includes('3MB') || data.error.includes('10MB');
+        if (isSizeError) {
+          showAlert('Image Too Large', data.error);
+          return;
+        }
+
+        const isDaily = data?.is_daily_limit || data.error.includes('daily limit') || data.error.includes('add your own API key') || data.error.includes('Daily scan limit');
+        if (isDaily) {
+          showAlert(
+            'Daily Limit Reached',
+            data.error,
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Settings', onPress: () => router.push('/settings') }
+            ]
+          );
+          return;
+        }
+        throw new Error(data.error);
+      }
       
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setEstimate(data.data as MealEstimate);
       setReviewVisible(true);
     } catch (err: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      showAlert('Analysis Failed', err.message || 'Could not analyze meal.');
+      const isSizeError = err.message?.includes('too large') || err.message?.includes('3MB') || err.message?.includes('413');
+      if (isSizeError) {
+        showAlert('Image Too Large', 'The image is too large to analyze. Please choose a smaller photo or retake it.');
+        return;
+      }
+      const isDaily = err.message?.includes('daily limit') || err.message?.includes('add your own API key') || err.message?.includes('Daily scan limit');
+      if (isDaily) {
+        showAlert(
+          'Daily Limit Reached',
+          err.message,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Settings', onPress: () => router.push('/settings') }
+          ]
+        );
+      } else {
+        showAlert('Analysis Failed', err.message || 'Could not analyze meal.');
+      }
     } finally {
       setScanningType(null);
     }
@@ -527,10 +590,15 @@ export default function HomeScreen() {
       setEditingEntry(null);
       if (userId) fetchDashboardData(userId, selectedDate);
     } catch (err: any) {
-      showAlert(
-        editingEntry ? 'Update Failed' : 'Save Failed',
-        err.message || 'Could not save meal.',
-      );
+      const isSizeError = err.message?.includes('too large') || err.message?.includes('3MB') || err.message?.includes('413');
+      if (isSizeError) {
+        showAlert('Image Too Large', 'The image is too large to save. Please choose a smaller photo.');
+      } else {
+        showAlert(
+          editingEntry ? 'Update Failed' : 'Save Failed',
+          err.message || 'Could not save meal.',
+        );
+      }
     } finally {
       setIsSaving(false);
     }

@@ -1,7 +1,7 @@
 
 [functions.scan-food]
 enabled = true
-verify_jwt = false
+verify_jwt = true
 import_map = "./functions/scan-food/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
@@ -12,7 +12,7 @@ entrypoint = "./functions/scan-food/index.ts"
 
 [functions.log-meal]
 enabled = true
-verify_jwt = false
+verify_jwt = true
 import_map = "./functions/log-meal/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
@@ -27,7 +27,7 @@ enabled = true
 
 [functions.log-exercise]
 enabled = true
-verify_jwt = false
+verify_jwt = true
 import_map = "./functions/log-exercise/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx

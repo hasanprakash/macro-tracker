@@ -28,7 +28,7 @@ export default function SettingsScreen() {
   const [byokVisible, setByokVisible] = useState(false);
   const [tipsVisible, setTipsVisible] = useState(false);
   const [hasSeenTips, setHasSeenTips] = useState(true);
-  const [aiSettings, setAiSettings] = useState({ byok_enabled: false, has_custom_key: false });
+  const [aiSettings, setAiSettings] = useState({ byok_enabled: true, has_custom_key: false });
   const [currentProfile, setCurrentProfile] = useState<Profile | null>(null);
   const [onboardingInitialStep, setOnboardingInitialStep] = useState<'intro' | 'review'>('intro');
 

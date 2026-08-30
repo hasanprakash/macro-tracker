@@ -4,11 +4,63 @@ import { Ratelimit } from "https://esm.sh/@upstash/ratelimit@1.0.1";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-idempotency-key',
+  'Access-Control-Expose-Headers': 'Server-Timing, X-Cache, Retry-After',
 };
 
-// We keep the prompt rules to guide Gemini on how to interpret quantities,
-// but rely on responseSchema for the strict JSON structure.
+// ── Module-Scoped Singleton Clients & Persistent Ephemeral Caches ─────
+// Keeping these outside Deno.serve reuses TCP connections and enables 0ms in-memory cache hits
+const redisUrl = Deno.env.get('UPSTASH_REDIS_REST_URL');
+const redisToken = Deno.env.get('UPSTASH_REDIS_REST_TOKEN');
+const redis = (redisUrl && redisToken) ? new Redis({ url: redisUrl, token: redisToken }) : null;
+
+const globalCacheMap = new Map();
+const edgeBurstCacheMap = new Map();
+const edgeDailyCacheMap = new Map();
+const aiMinuteCacheMap = new Map();
+const aiDailyCacheMap = new Map();
+
+const globalLimit = parseInt(Deno.env.get('GLOBAL_LIMIT_PER_MINUTE') || '100', 10);
+const edgeBurstLimit = parseInt(Deno.env.get('EDGE_LIMIT_PER_MINUTE') || '5', 10);
+const edgeDailyLimit = parseInt(Deno.env.get('EDGE_LIMIT_PER_DAY') || '15', 10);
+const aiLimitMinute = parseInt(Deno.env.get('AI_LIMIT_PER_MINUTE') || '3', 10);
+const aiLimitDay = parseInt(Deno.env.get('AI_LIMIT_PER_DAY') || '6', 10);
+
+const globalLimiter = redis ? new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(globalLimit, "1 m"),
+  ephemeralCache: globalCacheMap,
+  prefix: "ratelimit:global:scan-food"
+}) : null;
+
+const edgeBurstLimiter = redis ? new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(edgeBurstLimit, "1 m"),
+  ephemeralCache: edgeBurstCacheMap,
+  prefix: "ratelimit:burst:scan-food"
+}) : null;
+
+const edgeDailyLimiter = redis ? new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(edgeDailyLimit, "1 d"),
+  ephemeralCache: edgeDailyCacheMap,
+  prefix: "ratelimit:edge:scan-food:day"
+}) : null;
+
+const aiMinuteLimiter = redis ? new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(aiLimitMinute, "1 m"),
+  ephemeralCache: aiMinuteCacheMap,
+  prefix: "ratelimit:ai:scan-food:minute"
+}) : null;
+
+const aiDayLimiter = redis ? new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(aiLimitDay, "1 d"),
+  ephemeralCache: aiDailyCacheMap,
+  prefix: "ratelimit:ai:scan-food:day"
+}) : null;
+
 const geminiPrompt = `
 Analyze the provided meal from the user's text and/or image.
 
@@ -24,7 +76,6 @@ Do not invent foods that are not reasonably identifiable from the input.
 For confidence, provide a value between 0 and 1.
 `;
 
-// Define the precise shape of the data we want back to force structured output
 const macroSchema = {
   type: "object",
   properties: {
@@ -66,8 +117,27 @@ Deno.serve(async (req) => {
     return new Response('ok', { headers: corsHeaders });
   }
 
+  const t0 = performance.now();
+  let tAuth = 0;
+  let tParse = 0;
+  let tCache = 0;
+  let tRateLimit = 0;
+  let tDb = 0;
+  let tGemini = 0;
+
   try {
-    // ── Auth ──────────────────────────────────────────────────────────
+    // ── 1. Early Request Size Check (Max 3MB) ────────────────────────
+    const contentLength = req.headers.get("content-length");
+    const maxSizeBytes = parseInt(Deno.env.get("MAX_REQUEST_SIZE_BYTES") || "3145728", 10);
+    if (contentLength && parseInt(contentLength, 10) > maxSizeBytes) {
+      return new Response(
+        JSON.stringify({ error: "Request payload is too large (maximum 3MB). Please choose a smaller image." }),
+        { status: 413, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // ── 2. Authentication ─────────────────────────────────────────────
+    const tAuthStart = performance.now();
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') || '';
     const authorization = req.headers.get("Authorization");
@@ -93,8 +163,108 @@ Deno.serve(async (req) => {
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+    tAuth = Math.round(performance.now() - tAuthStart);
 
-    // ── Fetch User's Assigned AI Model & Settings ────────────────────
+    // ── 3. Parse & Validate Payload Early ─────────────────────────────
+    const tParseStart = performance.now();
+    const body = await req.json();
+    const { text, image_base64, idempotency_key } = body;
+    const idempotencyId = req.headers.get('x-idempotency-key') || idempotency_key || null;
+
+    if (!text && !image_base64) {
+      return new Response(
+        JSON.stringify({ error: 'Must provide either text, image_base64, or both' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    tParse = Math.round(performance.now() - tParseStart);
+
+    const ip = req.headers.get('x-forwarded-for') || req.headers.get('cf-connecting-ip') || 'unknown-ip';
+    const identifier = `${user.id}:${ip}`;
+
+    // ── 4. Idempotency Fast-Path Cache Check (Redis Lookup) ───────────
+    const tCacheStart = performance.now();
+    if (idempotencyId && redis) {
+      try {
+        const cached = await redis.get(`idempotent:scan-food:${user.id}:${idempotencyId}`);
+        if (cached) {
+          tCache = Math.round(performance.now() - tCacheStart);
+          const tTotal = Math.round(performance.now() - t0);
+          console.log(`[scan-food] [CACHE HIT] key: ${idempotencyId} | total: ${tTotal}ms`);
+          const cachedData = typeof cached === 'string' ? JSON.parse(cached) : cached;
+          return new Response(
+            JSON.stringify({ success: true, data: cachedData, cached: true, timings: { total_ms: tTotal, cache_ms: tCache } }),
+            { 
+              status: 200, 
+              headers: { 
+                ...corsHeaders, 
+                'Content-Type': 'application/json', 
+                'X-Cache': 'HIT',
+                'Server-Timing': `cache;dur=${tCache}, total;dur=${tTotal}`
+              } 
+            }
+          );
+        }
+      } catch (cacheErr) {
+        console.warn("scan-food: Idempotency cache lookup failed:", cacheErr);
+      }
+    }
+    tCache = Math.round(performance.now() - tCacheStart);
+
+    // ── 5. Parallel Global & Edge Function Rate Limiting (Promise.all) ─
+    const tRateLimitStart = performance.now();
+    if (globalLimiter && edgeBurstLimiter && edgeDailyLimiter) {
+      try {
+        const [globalRes, burstRes, edgeDailyRes] = await Promise.all([
+          globalLimiter.limit("global"),
+          edgeBurstLimiter.limit(identifier),
+          edgeDailyLimiter.limit(identifier),
+        ]);
+
+        if (!globalRes.success) {
+          const retryAfter = Math.ceil((globalRes.reset - Date.now()) / 1000);
+          return new Response(
+            JSON.stringify({ 
+              error: "High server load. Please wait a moment before trying again.",
+              retry_after_seconds: retryAfter,
+              rate_limited: true
+            }),
+            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": retryAfter.toString() } }
+          );
+        }
+
+        if (!burstRes.success) {
+          const retryAfter = Math.ceil((burstRes.reset - Date.now()) / 1000);
+          return new Response(
+            JSON.stringify({ 
+              error: `Too many requests. Please wait ${retryAfter}s before scanning again.`,
+              retry_after_seconds: retryAfter,
+              rate_limited: true
+            }),
+            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": retryAfter.toString() } }
+          );
+        }
+
+        if (!edgeDailyRes.success) {
+          const retryAfter = Math.ceil((edgeDailyRes.reset - Date.now()) / 1000);
+          const hours = Math.ceil(retryAfter / 3600);
+          return new Response(
+            JSON.stringify({ 
+              error: `Daily scan limit reached. Resets in ${hours} hour${hours > 1 ? 's' : ''}.`,
+              retry_after_seconds: retryAfter,
+              rate_limited: true,
+              is_daily_limit: true
+            }),
+            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": retryAfter.toString() } }
+          );
+        }
+      } catch (burstErr) {
+        console.warn("scan-food: Edge rate limiter failed open:", burstErr);
+      }
+    }
+
+    // ── 6. Fetch User's Assigned AI Model & Custom API Key ───────────
+    const tDbStart = performance.now();
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
     
@@ -112,82 +282,48 @@ Deno.serve(async (req) => {
     if (modelData?.custom_api_key) {
       customApiKey = modelData.custom_api_key;
     }
+    tDb = Math.round(performance.now() - tDbStart);
 
-    // ── Parse & Validate Input ───────────────────────────────────────
-    const body = await req.json();
-    const { text, image_base64, idempotency_key } = body;
-    const idempotencyId = req.headers.get('x-idempotency-key') || idempotency_key || null;
-
-    if (!text && !image_base64) {
-      return new Response(
-        JSON.stringify({ error: 'Must provide either text, image_base64, or both' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // ── Initialize Redis (for Idempotency & Rate Limiting) ───────────
-    const redisUrl = Deno.env.get('UPSTASH_REDIS_REST_URL');
-    const redisToken = Deno.env.get('UPSTASH_REDIS_REST_TOKEN');
-    const redis = (redisUrl && redisToken) ? new Redis({ url: redisUrl, token: redisToken }) : null;
-
-    // ── Idempotency Check: Return cached AI response if replayed ──────
-    if (idempotencyId && redis) {
+    // ── 7. AI Specific Rate Limiting (Parallel 3/min & 6/day for Free Tier)
+    if (!customApiKey && aiMinuteLimiter && aiDayLimiter) {
       try {
-        const cached = await redis.get(`idempotent:scan-food:${user.id}:${idempotencyId}`);
-        if (cached) {
-          console.log("scan-food: Cache HIT for idempotency key:", idempotencyId);
-          const cachedData = typeof cached === 'string' ? JSON.parse(cached) : cached;
+        const [minuteRes, dayRes] = await Promise.all([
+          aiMinuteLimiter.limit(identifier),
+          aiDayLimiter.limit(identifier),
+        ]);
+
+        if (!minuteRes.success) {
+          const retryAfter = Math.ceil((minuteRes.reset - Date.now()) / 1000);
           return new Response(
-            JSON.stringify({ success: true, data: cachedData, cached: true }),
-            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json', 'X-Cache': 'HIT' } }
+            JSON.stringify({ 
+              error: `AI analysis limit reached (3 per minute). Please wait ${retryAfter}s before trying again.`,
+              retry_after_seconds: retryAfter,
+              rate_limited: true
+            }),
+            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": retryAfter.toString() } }
           );
         }
-      } catch (cacheErr) {
-        console.warn("scan-food: Idempotency cache lookup failed:", cacheErr);
+
+        if (!dayRes.success) {
+          const retryAfter = Math.ceil((dayRes.reset - Date.now()) / 1000);
+          const hours = Math.ceil(retryAfter / 3600);
+          return new Response(
+            JSON.stringify({ 
+              error: `You've reached your free daily limit of 6 meal scans. Resets in ${hours} hour${hours > 1 ? 's' : ''}, or add your own API key in Settings for unlimited scans.`,
+              retry_after_seconds: retryAfter,
+              rate_limited: true,
+              is_daily_limit: true
+            }),
+            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": retryAfter.toString() } }
+          );
+        }
+      } catch (aiRateErr) {
+        console.warn("scan-food: AI rate limiter failed open:", aiRateErr);
       }
     }
+    tRateLimit = Math.round(performance.now() - tRateLimitStart);
 
-    // ── Rate Limiting (Upstash Redis) ────────────────────────────────
-    // Bypass rate limiting if the user brought their own API key
-    if (!customApiKey && redis) {
-      const limitMinute = parseInt(Deno.env.get('AI_LIMIT_PER_MINUTE') || '3', 10);
-      const ratelimitMinute = new Ratelimit({
-        redis: redis,
-        limiter: Ratelimit.slidingWindow(limitMinute, "1 m"),
-        ephemeralCache: new Map(),
-        prefix: "ratelimit:minute"
-      });
-      
-      const limitDay = parseInt(Deno.env.get('AI_LIMIT_PER_DAY') || '6', 10);
-      const ratelimitDay = new Ratelimit({
-        redis: redis,
-        limiter: Ratelimit.slidingWindow(limitDay, "1 d"),
-        ephemeralCache: new Map(),
-        prefix: "ratelimit:day"
-      });
-
-      // Composite key using userId and IP address
-      const ip = req.headers.get('x-forwarded-for') || 'unknown-ip';
-      const identifier = `${user.id}:${ip}`;
-
-      const { success: successMinute } = await ratelimitMinute.limit(identifier);
-      if (!successMinute) {
-        return new Response(
-          JSON.stringify({ error: "Too many requests. Please wait a minute before trying again." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      const { success: successDay } = await ratelimitDay.limit(identifier);
-      if (!successDay) {
-        return new Response(
-          JSON.stringify({ error: "Daily limit reached. You can only analyze 6 meals per day on the free tier." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-    }
-
-    // ── Build Gemini Request ─────────────────────────────────────────
+    // ── 8. Build Gemini Request ───────────────────────────────────────
     const apiKey = customApiKey || Deno.env.get('GEMINI_API_KEY');
     if (!apiKey) {
       throw new Error("Missing GEMINI_API_KEY");
@@ -195,7 +331,6 @@ Deno.serve(async (req) => {
 
     const parts: any[] = [{ text: geminiPrompt }];
 
-    // Text and image can be sent together
     if (text) {
       parts.push({ text: `User description: ${text}` });
     }
@@ -209,9 +344,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    console.log("scan-food: Calling Gemini...");
+    console.log(`scan-food: Calling Gemini (${aiModel}) for user`, user.id);
 
-    // ── Call Gemini ──────────────────────────────────────────────────
+    // ── 9. Call Gemini API ───────────────────────────────────────────
+    const tGeminiStart = performance.now();
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${aiModel}:generateContent`;
 
     const response = await fetch(geminiUrl, {
@@ -253,7 +389,6 @@ Deno.serve(async (req) => {
       throw new Error("Failed to parse Gemini response text");
     }
 
-    // ── Parse & Validate Response ────────────────────────────────────
     let parsedResponse;
     try {
       parsedResponse = JSON.parse(geminiText);
@@ -261,8 +396,9 @@ Deno.serve(async (req) => {
       console.error("Gemini raw text:", geminiText);
       throw new Error("Gemini response was not valid JSON");
     }
+    tGemini = Math.round(performance.now() - tGeminiStart);
 
-    // ── Cache for Idempotency (10 minute TTL) ────────────────────────
+    // ── 10. Cache for Idempotency (10 minute TTL) ─────────────────────
     if (idempotencyId && redis) {
       try {
         await redis.set(
@@ -275,15 +411,32 @@ Deno.serve(async (req) => {
       }
     }
 
-    console.log("scan-food: Success -", parsedResponse.meal_name);
+    const tTotal = Math.round(performance.now() - t0);
+    const serverTiming = `auth;dur=${tAuth}, parse;dur=${tParse}, cache;dur=${tCache}, ratelimit;dur=${tRateLimit}, db;dur=${tDb}, gemini;dur=${tGemini}, total;dur=${tTotal}`;
+    
+    console.log(`[scan-food] [TIMING] Total: ${tTotal}ms | Gemini: ${tGemini}ms (${((tGemini/tTotal)*100).toFixed(1)}%) | DB: ${tDb}ms | Redis: ${tRateLimit}ms | Auth: ${tAuth}ms`);
 
-    // ── Return Estimate (NO DB write) ────────────────────────────────
+    // ── 11. Return Estimate ───────────────────────────────────────────
     return new Response(
       JSON.stringify({
         success: true,
         data: parsedResponse,
+        timings: {
+          total_ms: tTotal,
+          gemini_ms: tGemini,
+          db_ms: tDb,
+          redis_ms: tRateLimit,
+          auth_ms: tAuth,
+        }
       }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { 
+        status: 200, 
+        headers: { 
+          ...corsHeaders, 
+          'Content-Type': 'application/json',
+          'Server-Timing': serverTiming,
+        } 
+      }
     );
 
   } catch (error: any) {
@@ -294,7 +447,6 @@ Deno.serve(async (req) => {
       friendlyMessage = "Our AI is currently experiencing high demand. Please try again in a moment.";
     }
 
-    // Return 200 with an error property so the client SDK doesn't throw a generic "Edge Function returned a non-2xx status code" error.
     return new Response(
       JSON.stringify({ error: friendlyMessage }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
