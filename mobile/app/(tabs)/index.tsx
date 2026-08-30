@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
+import * as Crypto from 'expo-crypto';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { supabase } from '@/lib/supabase';
@@ -270,49 +271,31 @@ export default function HomeScreen() {
         burned = durationMins * ((3.5 - 1) * 3.5 * weight) / 200;
       }
 
-      // Query DB directly to avoid race conditions with local state
-      const { data: existingData } = await supabase
-        .from('exercises')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('exercise_date', syncDate)
-        .eq('exercise_type', 'Steps')
-        .maybeSingle();
+      const externalId = `health_connect_steps_${syncDate}`;
+      const stepEntry = {
+        user_id: userId,
+        exercise_date: syncDate,
+        exercise_type: 'Steps',
+        description: `≈ ${distanceKm.toFixed(1)} km`,
+        duration_minutes: 0,
+        steps_count: hcSteps,
+        calories_burned: burned,
+        source: ExerciseSource.HEALTH_CONNECT,
+        calculation_method: calcMethod,
+        external_id: externalId,
+      };
 
-      if (existingData) {
-        if (existingData.steps_count !== hcSteps || Math.abs(existingData.calories_burned - burned) > 1) {
-          const { error } = await supabase.from('exercises').update({
-            steps_count: hcSteps,
-            calories_burned: burned,
-            description: `≈ ${distanceKm.toFixed(1)} km`,
-            source: ExerciseSource.HEALTH_CONNECT,
-            calculation_method: calcMethod
-          }).eq('id', existingData.id);
-          
-          if (!error) {
-            setTodaysExercises(prev => prev.map(e => e.id === existingData.id ? { ...e, steps_count: hcSteps, calories_burned: burned, description: `≈ ${distanceKm.toFixed(1)} km`, source: ExerciseSource.HEALTH_CONNECT, calculation_method: calcMethod } : e));
-          }
-        }
-      } else {
-        const newEntry = {
-          user_id: userId,
-          exercise_date: syncDate,
-          exercise_type: 'Steps',
-          description: `≈ ${distanceKm.toFixed(1)} km`,
-          duration_minutes: 0,
-          steps_count: hcSteps,
-          calories_burned: burned,
-          source: ExerciseSource.HEALTH_CONNECT,
-          calculation_method: calcMethod,
-        };
-        const { data, error } = await supabase.from('exercises').insert(newEntry).select().single();
-        if (data && !error) {
-          // Clean state first to prevent duplicates
-          setTodaysExercises(prev => {
-            const filtered = prev.filter(e => e.exercise_type !== 'Steps' || e.exercise_date !== syncDate);
-            return [...filtered, data];
-          });
-        }
+      const { data, error } = await supabase
+        .from('exercises')
+        .upsert(stepEntry, { onConflict: 'user_id,external_id' })
+        .select()
+        .single();
+
+      if (data && !error) {
+        setTodaysExercises(prev => {
+          const filtered = prev.filter(e => e.external_id !== externalId && (e.exercise_type !== 'Steps' || e.exercise_date !== syncDate));
+          return [...filtered, data as ExerciseEntry];
+        });
       }
     };
 
@@ -384,8 +367,9 @@ export default function HomeScreen() {
     setScanningType('exercise');
     try {
       const weight = profile?.weight_kg || 70;
+      const idempotencyKey = Crypto.randomUUID();
       const { data, error } = await supabase.functions.invoke('log-exercise', {
-        body: { text, weight }
+        body: { text, weight, idempotency_key: idempotencyKey }
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
@@ -402,9 +386,11 @@ export default function HomeScreen() {
     if (!userId) return;
     
     try {
+      const clientExerciseId = Crypto.randomUUID();
       const { data, error } = await supabase
         .from('exercises')
         .insert({
+          id: clientExerciseId,
           user_id: userId,
           title: entryData.title,
           exercise_type: entryData.exercise_type,
@@ -440,26 +426,23 @@ export default function HomeScreen() {
   const handleLogWeight = async (weight: number) => {
     if (!userId) return;
     try {
-      if (todaysWeight) {
-        // Update existing log for today
-        const { data, error } = await supabase
-          .from('weight_logs')
-          .update({ weight, recorded_at: new Date().toISOString() })
-          .eq('id', todaysWeight.id)
-          .select()
-          .single();
-        if (error) throw error;
-        setTodaysWeight(data as WeightLog);
-      } else {
-        // Insert new log
-        const { data, error } = await supabase
-          .from('weight_logs')
-          .insert({ user_id: userId, weight })
-          .select()
-          .single();
-        if (error) throw error;
-        setTodaysWeight(data as WeightLog);
-      }
+      const todayDate = selectedDate || new Date().toISOString().split('T')[0];
+      const { data, error } = await supabase
+        .from('weight_logs')
+        .upsert(
+          {
+            user_id: userId,
+            weight,
+            log_date: todayDate,
+            recorded_at: new Date().toISOString(),
+          },
+          { onConflict: 'user_id,log_date' }
+        )
+        .select()
+        .single();
+
+      if (error) throw error;
+      setTodaysWeight(data as WeightLog);
       
       // Update profile weight
       await supabase.from('profiles').update({ weight_kg: weight }).eq('id', userId);
@@ -479,13 +462,14 @@ export default function HomeScreen() {
     setAddModalVisible(true);
   };
 
-  // Step 1: Call Gemini
+  // Step 1: Call Gemini (with Idempotency Key)
   const handleAnalyze = async (text?: string, imageBase64?: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     setScanningType('meal');
     try {
+      const idempotencyKey = Crypto.randomUUID();
       const { data, error } = await supabase.functions.invoke('scan-food', {
-        body: { text, image_base64: imageBase64, meal_type: activeMealType }
+        body: { text, image_base64: imageBase64, meal_type: activeMealType, idempotency_key: idempotencyKey }
       });
       
       if (error) throw error;
@@ -502,10 +486,12 @@ export default function HomeScreen() {
     }
   };
 
-  // Step 2: Save to DB
+  // Step 2: Save to DB (with Client-Generated Meal ID)
   const handleSaveMeal = async (mealName: string, title: string, foods: FoodItem[], totals: MealTotals) => {
     setIsSaving(true);
     try {
+      const clientMealId = editingEntry ? editingEntry.id : Crypto.randomUUID();
+
       if (editingEntry) {
         // Edit mode: if no foods remain, just delete the entry
         if (foods.length === 0) {
@@ -524,6 +510,7 @@ export default function HomeScreen() {
 
       const { data, error } = await supabase.functions.invoke('log-meal', {
         body: {
+          meal_id: clientMealId,
           meal_type: activeMealType,
           meal_name: mealName,
           title: title,

@@ -113,17 +113,43 @@ Deno.serve(async (req) => {
       customApiKey = modelData.custom_api_key;
     }
 
-    // ── Rate Limiting (Upstash Redis) ────────────────────────────────
+    // ── Parse & Validate Input ───────────────────────────────────────
+    const body = await req.json();
+    const { text, image_base64, idempotency_key } = body;
+    const idempotencyId = req.headers.get('x-idempotency-key') || idempotency_key || null;
+
+    if (!text && !image_base64) {
+      return new Response(
+        JSON.stringify({ error: 'Must provide either text, image_base64, or both' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // ── Initialize Redis (for Idempotency & Rate Limiting) ───────────
     const redisUrl = Deno.env.get('UPSTASH_REDIS_REST_URL');
     const redisToken = Deno.env.get('UPSTASH_REDIS_REST_TOKEN');
-    
-    // Bypass rate limiting if the user brought their own API key
-    if (!customApiKey && redisUrl && redisToken) {
-      const redis = new Redis({
-        url: redisUrl,
-        token: redisToken,
-      });
+    const redis = (redisUrl && redisToken) ? new Redis({ url: redisUrl, token: redisToken }) : null;
 
+    // ── Idempotency Check: Return cached AI response if replayed ──────
+    if (idempotencyId && redis) {
+      try {
+        const cached = await redis.get(`idempotent:scan-food:${user.id}:${idempotencyId}`);
+        if (cached) {
+          console.log("scan-food: Cache HIT for idempotency key:", idempotencyId);
+          const cachedData = typeof cached === 'string' ? JSON.parse(cached) : cached;
+          return new Response(
+            JSON.stringify({ success: true, data: cachedData, cached: true }),
+            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json', 'X-Cache': 'HIT' } }
+          );
+        }
+      } catch (cacheErr) {
+        console.warn("scan-food: Idempotency cache lookup failed:", cacheErr);
+      }
+    }
+
+    // ── Rate Limiting (Upstash Redis) ────────────────────────────────
+    // Bypass rate limiting if the user brought their own API key
+    if (!customApiKey && redis) {
       const limitMinute = parseInt(Deno.env.get('AI_LIMIT_PER_MINUTE') || '3', 10);
       const ratelimitMinute = new Ratelimit({
         redis: redis,
@@ -159,17 +185,6 @@ Deno.serve(async (req) => {
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-    }
-
-    // ── Validate Input ───────────────────────────────────────────────
-    const body = await req.json();
-    const { text, image_base64 } = body;
-
-    if (!text && !image_base64) {
-      return new Response(
-        JSON.stringify({ error: 'Must provide either text, image_base64, or both' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
     }
 
     // ── Build Gemini Request ─────────────────────────────────────────
@@ -239,13 +254,25 @@ Deno.serve(async (req) => {
     }
 
     // ── Parse & Validate Response ────────────────────────────────────
-    // Safely parse it directly without regex cleanup or brace checking
     let parsedResponse;
     try {
       parsedResponse = JSON.parse(geminiText);
     } catch (_e) {
       console.error("Gemini raw text:", geminiText);
       throw new Error("Gemini response was not valid JSON");
+    }
+
+    // ── Cache for Idempotency (10 minute TTL) ────────────────────────
+    if (idempotencyId && redis) {
+      try {
+        await redis.set(
+          `idempotent:scan-food:${user.id}:${idempotencyId}`,
+          JSON.stringify(parsedResponse),
+          { ex: 600 }
+        );
+      } catch (cacheSetErr) {
+        console.warn("scan-food: Failed to cache idempotency response:", cacheSetErr);
+      }
     }
 
     console.log("scan-food: Success -", parsedResponse.meal_name);

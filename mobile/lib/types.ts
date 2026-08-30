@@ -117,6 +117,7 @@ export interface ExerciseEntry {
   created_at: string;
   source?: ExerciseSource | string | null;
   calculation_method?: CalculationMethod | string | null;
+  external_id?: string | null;
 }
 
 /** A user's logged weight entry */
@@ -127,4 +128,5 @@ export interface WeightLog {
   body_fat_percentage?: number | null;
   muscle_mass?: number | null;
   recorded_at: string;
+  log_date?: string;
 }

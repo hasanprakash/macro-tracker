@@ -40,7 +40,8 @@ Deno.serve(async (req) => {
 
     // ── Validate Payload ─────────────────────────────────────────────
     const body = await req.json();
-    const { meal_type, meal_name, title, foods, totals, image_base64 } = body;
+    const { meal_type, meal_name, title, foods, totals, image_base64, meal_id, idempotency_key } = body;
+    const clientMealId = meal_id || idempotency_key || null;
 
     if (!meal_type || !meal_name || !Array.isArray(foods) || foods.length === 0 || !totals) {
       return new Response(
@@ -61,11 +62,12 @@ Deno.serve(async (req) => {
           bytes[i] = binaryStr.charCodeAt(i);
         }
 
-        const fileName = `${user.id}/${Date.now()}.jpg`;
+        const fileName = `${user.id}/${clientMealId || Date.now()}.jpg`;
         const { data: uploadData, error: uploadError } = await supabase.storage
           .from('meal-images')
           .upload(fileName, bytes.buffer, {
             contentType: 'image/jpeg',
+            upsert: true,
           });
 
         if (uploadError) {
@@ -90,7 +92,8 @@ Deno.serve(async (req) => {
       p_raw_input: { foods },
       p_ai_response_json: { meal_name, title, foods, totals },
       p_foods: foods,
-      p_title: title
+      p_title: title,
+      p_meal_id: clientMealId
     });
 
     if (rpcError) {
@@ -99,14 +102,16 @@ Deno.serve(async (req) => {
     }
 
     const entryData = rpcData.entry;
+    const isReplay = rpcData.idempotent_replay || false;
 
-    console.log("log-meal: Saved", meal_name, "for user", user.id);
+    console.log("log-meal: Saved", meal_name, "for user", user.id, "(Replay?", isReplay, ")");
 
     // ── Return ───────────────────────────────────────────────────────
     return new Response(
       JSON.stringify({
         success: true,
         entry: entryData,
+        idempotent_replay: isReplay,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

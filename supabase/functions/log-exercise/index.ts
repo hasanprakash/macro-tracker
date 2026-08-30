@@ -60,16 +60,42 @@ Deno.serve(async (req) => {
       customApiKey = modelData.custom_api_key;
     }
 
-    // ── Rate Limiting (Upstash Redis) ────────────────────────────────
+    // ── Parse & Validate Input ───────────────────────────────────────
+    const body = await req.json();
+    const { text, weight = 70, idempotency_key } = body;
+    const idempotencyId = req.headers.get('x-idempotency-key') || idempotency_key || null;
+
+    if (!text) {
+      return new Response(
+        JSON.stringify({ error: 'Must provide text' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // ── Initialize Redis (for Idempotency & Rate Limiting) ───────────
     const redisUrl = Deno.env.get('UPSTASH_REDIS_REST_URL');
     const redisToken = Deno.env.get('UPSTASH_REDIS_REST_TOKEN');
-    
-    if (!customApiKey && redisUrl && redisToken) {
-      const redis = new Redis({
-        url: redisUrl,
-        token: redisToken,
-      });
+    const redis = (redisUrl && redisToken) ? new Redis({ url: redisUrl, token: redisToken }) : null;
 
+    // ── Idempotency Check: Return cached AI response if replayed ──────
+    if (idempotencyId && redis) {
+      try {
+        const cached = await redis.get(`idempotent:log-exercise:${user.id}:${idempotencyId}`);
+        if (cached) {
+          console.log("log-exercise: Cache HIT for idempotency key:", idempotencyId);
+          const cachedData = typeof cached === 'string' ? JSON.parse(cached) : cached;
+          return new Response(
+            JSON.stringify({ success: true, data: cachedData, cached: true }),
+            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json', 'X-Cache': 'HIT' } }
+          );
+        }
+      } catch (cacheErr) {
+        console.warn("log-exercise: Idempotency cache lookup failed:", cacheErr);
+      }
+    }
+
+    // ── Rate Limiting (Upstash Redis) ────────────────────────────────
+    if (!customApiKey && redis) {
       const limitMinute = parseInt(Deno.env.get('AI_LIMIT_PER_MINUTE') || '3', 10);
       const ratelimitMinute = new Ratelimit({
         redis: redis,
@@ -104,16 +130,6 @@ Deno.serve(async (req) => {
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-    }
-
-    const body = await req.json();
-    const { text, weight = 70 } = body;
-
-    if (!text) {
-      return new Response(
-        JSON.stringify({ error: 'Must provide text' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
     }
 
     const { data: activities, error: actError } = await supabase
@@ -207,6 +223,19 @@ Return ONLY a JSON object with 'title' (string), 'activity_code' (string) and 'd
       source: 'gemini',
       calculation_method: 'met'
     };
+
+    // ── Cache for Idempotency (10 minute TTL) ────────────────────────
+    if (idempotencyId && redis) {
+      try {
+        await redis.set(
+          `idempotent:log-exercise:${user.id}:${idempotencyId}`,
+          JSON.stringify(finalResult),
+          { ex: 600 }
+        );
+      } catch (cacheSetErr) {
+        console.warn("log-exercise: Failed to cache idempotency response:", cacheSetErr);
+      }
+    }
 
     return new Response(
       JSON.stringify({ success: true, data: finalResult }),
