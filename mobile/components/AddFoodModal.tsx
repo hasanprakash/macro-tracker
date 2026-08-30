@@ -23,7 +23,7 @@ interface AddFoodModalProps {
   mealType: string;
   recentFoods: RecentFood[];
   onClose: () => void;
-  onAnalyze: (text?: string, imageBase64?: string) => void;
+  onAnalyze: (text?: string, imageBase64?: string, imageUri?: string) => void;
   onQuickAdd: (mealName: string, foods: FoodItem[], totals: MealTotals) => void;
   onRepeatYesterday: () => void;
 }
@@ -42,8 +42,8 @@ export function AddFoodModal({
 
   const [mode, setMode] = useState<'options' | 'describe'>('options');
   const [description, setDescription] = useState('');
-  const [imageBase64, setImageBase64] = useState<string | undefined>();
-  const [imageUri, setImageUri] = useState<string | undefined>();
+  const [imageBase64, setImageBase64] = useState<string | undefined>(undefined);
+  const [imageUri, setImageUri] = useState<string | undefined>(undefined);
   const [showTip, setShowTip] = useState(false);
 
   React.useEffect(() => {
@@ -88,13 +88,10 @@ export function AddFoodModal({
     try {
       const manipResult = await ImageManipulator.manipulateAsync(
         uri,
-        [{ resize: { width: 1024 } }],
-        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+        [{ resize: { width: 720 } }],
+        { compress: 0.5, format: ImageManipulator.SaveFormat.JPEG }
       );
-      if (manipResult.base64) {
-        setImageBase64(manipResult.base64);
-        setImageUri(manipResult.uri);
-      }
+      setImageUri(manipResult.uri);
     } catch (error) {
       console.error("Image processing error:", error);
       alert("Failed to process image.");
@@ -131,8 +128,8 @@ export function AddFoodModal({
   };
 
   const handleSubmitDescribe = () => {
-    if (description.trim() || imageBase64) {
-      onAnalyze(description.trim(), imageBase64);
+    if (description.trim() || imageUri || imageBase64) {
+      onAnalyze(description.trim(), imageBase64, imageUri);
       handleClose();
     }
   };

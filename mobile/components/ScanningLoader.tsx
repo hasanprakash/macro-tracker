@@ -2,7 +2,14 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
-const MEAL_STEPS = [
+const MEAL_STEPS_WITH_IMAGE = [
+  { label: 'Uploading photo...', emoji: '📤' },
+  { label: 'Identifying foods...', emoji: '🔍' },
+  { label: 'Estimating portions...', emoji: '⚖️' },
+  { label: 'Calculating nutrition...', emoji: '📊' },
+];
+
+const MEAL_STEPS_TEXT = [
   { label: 'Identifying foods...', emoji: '🔍' },
   { label: 'Estimating portions...', emoji: '⚖️' },
   { label: 'Calculating nutrition...', emoji: '📊' },
@@ -16,22 +23,26 @@ const EXERCISE_STEPS = [
   { label: 'Logging calories...', emoji: '✅' },
 ];
 
-// Each step advances every 6 seconds, giving ~24s total before looping.
-// The actual Gemini call usually finishes within 10-30s.
-const STEP_DURATION_MS = 6000;
+// 1.4s per step gives smooth progressive feedback across a typical 3-5s AI scan
+const STEP_DURATION_MS = 1400;
 
 interface ScanningLoaderProps {
   type?: 'meal' | 'exercise';
+  hasImage?: boolean;
+  isUploaded?: boolean;
 }
 
-export function ScanningLoader({ type = 'meal' }: ScanningLoaderProps) {
-  const STEPS = type === 'meal' ? MEAL_STEPS : EXERCISE_STEPS;
+export function ScanningLoader({ type = 'meal', hasImage = false, isUploaded = false }: ScanningLoaderProps) {
+  const STEPS = type === 'exercise' 
+    ? EXERCISE_STEPS 
+    : (hasImage ? MEAL_STEPS_WITH_IMAGE : MEAL_STEPS_TEXT);
+
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
   const [currentStep, setCurrentStep] = useState(0);
   const [pulseAnim] = useState(new Animated.Value(1));
   const [fadeAnims] = useState([
-    new Animated.Value(0),
+    new Animated.Value(1),
     new Animated.Value(0),
     new Animated.Value(0),
     new Animated.Value(0)
@@ -59,26 +70,39 @@ export function ScanningLoader({ type = 'meal' }: ScanningLoaderProps) {
     return () => pulse.stop();
   }, []);
 
-  // Step progression
+  // Exact Real-Time Network Callback: As soon as upload completes, advance step 0 -> 1 instantly
+  useEffect(() => {
+    if (hasImage && isUploaded && currentStep === 0) {
+      setCurrentStep(1);
+    }
+  }, [hasImage, isUploaded, currentStep]);
+
+  // Step progression through AI analysis
   useEffect(() => {
     const interval = setInterval(() => {
       setCurrentStep((prev) => {
+        // If image upload is still in flight, hold on step 0
+        if (hasImage && !isUploaded && prev === 0) {
+          return 0;
+        }
         if (prev < STEPS.length - 1) return prev + 1;
-        return prev; // Stay on last step
+        return prev;
       });
     }, STEP_DURATION_MS);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [hasImage, isUploaded, STEPS.length]);
 
-  // Fade in each step when it becomes active
+  // Fade in each step as it becomes active
   useEffect(() => {
-    Animated.timing(fadeAnims[currentStep], {
-      toValue: 1,
-      duration: 400,
-      easing: Easing.out(Easing.ease),
-      useNativeDriver: true,
-    }).start();
+    if (fadeAnims[currentStep]) {
+      Animated.timing(fadeAnims[currentStep], {
+        toValue: 1,
+        duration: 300,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: true,
+      }).start();
+    }
   }, [currentStep]);
 
   return (
@@ -109,7 +133,7 @@ export function ScanningLoader({ type = 'meal' }: ScanningLoaderProps) {
               style={[
                 styles.stepRow,
                 {
-                  opacity: isPending ? 0.3 : fadeAnims[index],
+                  opacity: isPending ? 0.35 : (fadeAnims[index] || 1),
                 },
               ]}
             >
@@ -129,7 +153,7 @@ export function ScanningLoader({ type = 'meal' }: ScanningLoaderProps) {
                   },
                 ]}
               >
-                {step.label}
+                {isCompleted && index === 0 && hasImage ? 'Photo uploaded' : step.label}
               </Text>
             </Animated.View>
           );

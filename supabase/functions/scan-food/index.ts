@@ -165,15 +165,40 @@ Deno.serve(async (req) => {
     }
     tAuth = Math.round(performance.now() - tAuthStart);
 
-    // ── 3. Parse & Validate Payload Early ─────────────────────────────
+    // ── 3. Parse & Validate Payload Early (Supports Multipart & JSON) ─
     const tParseStart = performance.now();
-    const body = await req.json();
-    const { text, image_base64, idempotency_key } = body;
-    const idempotencyId = req.headers.get('x-idempotency-key') || idempotency_key || null;
+    const contentType = req.headers.get("content-type") || "";
+    let text: string | undefined;
+    let image_base64: string | undefined;
+    let idempotencyId: string | null = req.headers.get('x-idempotency-key');
+
+    if (contentType.includes("multipart/form-data")) {
+      const formData = await req.formData();
+      text = (formData.get("text") as string) || undefined;
+      idempotencyId = idempotencyId || (formData.get("idempotency_key") as string) || null;
+      const imageFile = formData.get("image") as File | null;
+      if (imageFile) {
+        const arrayBuffer = await imageFile.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+        let binaryStr = "";
+        const len = bytes.byteLength;
+        const chunkSize = 8192;
+        for (let i = 0; i < len; i += chunkSize) {
+          const chunk = bytes.subarray(i, Math.min(i + chunkSize, len));
+          binaryStr += String.fromCharCode.apply(null, chunk as any);
+        }
+        image_base64 = btoa(binaryStr);
+      }
+    } else {
+      const body = await req.json();
+      text = body.text;
+      image_base64 = body.image_base64;
+      idempotencyId = idempotencyId || body.idempotency_key || null;
+    }
 
     if (!text && !image_base64) {
       return new Response(
-        JSON.stringify({ error: 'Must provide either text, image_base64, or both' }),
+        JSON.stringify({ error: 'Must provide either text, image, or both' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -414,7 +439,7 @@ Deno.serve(async (req) => {
     const tTotal = Math.round(performance.now() - t0);
     const serverTiming = `auth;dur=${tAuth}, parse;dur=${tParse}, cache;dur=${tCache}, ratelimit;dur=${tRateLimit}, db;dur=${tDb}, gemini;dur=${tGemini}, total;dur=${tTotal}`;
     
-    console.log(`[scan-food] [TIMING] Total: ${tTotal}ms | Gemini: ${tGemini}ms (${((tGemini/tTotal)*100).toFixed(1)}%) | DB: ${tDb}ms | Redis: ${tRateLimit}ms | Auth: ${tAuth}ms`);
+    console.log(`[scan-food] [TIMING] Total: ${tTotal}ms | Gemini: ${tGemini}ms (${((tGemini/tTotal)*100).toFixed(1)}%) | Upload/Parse: ${tParse}ms | DB: ${tDb}ms | Redis: ${tRateLimit}ms | Auth: ${tAuth}ms`);
 
     // ── 11. Return Estimate ───────────────────────────────────────────
     return new Response(
@@ -424,6 +449,7 @@ Deno.serve(async (req) => {
         timings: {
           total_ms: tTotal,
           gemini_ms: tGemini,
+          upload_parse_ms: tParse,
           db_ms: tDb,
           redis_ms: tRateLimit,
           auth_ms: tAuth,

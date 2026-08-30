@@ -23,6 +23,13 @@ interface WeightLog {
   recorded_at: string;
 }
 
+function formatLocalDate(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 export default function AnalyticsScreen() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
@@ -57,11 +64,13 @@ export default function AnalyticsScreen() {
       // Fetch last 30 days summaries (so we have data for the dynamic window)
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const thirtyDaysAgoStr = formatLocalDate(thirtyDaysAgo);
+
       const { data: summaryData } = await supabase
         .from('daily_summaries')
         .select('*')
         .eq('user_id', user.id)
-        .gte('summary_date', thirtyDaysAgo.toISOString().split('T')[0])
+        .gte('summary_date', thirtyDaysAgoStr)
         .order('summary_date', { ascending: true });
       
       setSummaries(summaryData || []);
@@ -71,7 +80,7 @@ export default function AnalyticsScreen() {
         .from('weight_logs')
         .select('*')
         .eq('user_id', user.id)
-        .gte('recorded_at', thirtyDaysAgo.toISOString())
+        .gte('recorded_at', thirtyDaysAgoStr)
         .order('recorded_at', { ascending: true });
 
       setWeightLogs(weightData || []);
@@ -97,19 +106,22 @@ export default function AnalyticsScreen() {
   const textPrimary = isDark ? '#F8FAFC' : '#0F172A';
   const textSecondary = isDark ? '#94A3B8' : '#64748B';
 
-  // --- Dynamic Window Logic ---
+  // --- Dynamic Window Logic (Timezone-Safe) ---
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  let oldestLogDate = new Date();
+  let oldestLogDate = new Date(today);
   
   if (summaries.length > 0) {
-    const firstSummaryDate = new Date(summaries[0].summary_date);
+    const [y, m, d] = summaries[0].summary_date.split('-').map(Number);
+    const firstSummaryDate = new Date(y, m - 1, d);
     if (firstSummaryDate < oldestLogDate) oldestLogDate = firstSummaryDate;
   }
   
   if (weightLogs.length > 0) {
-    const firstWeightDate = new Date(weightLogs[0].recorded_at.split('T')[0]);
+    const firstWeightStr = weightLogs[0].recorded_at.split('T')[0];
+    const [y, m, d] = firstWeightStr.split('-').map(Number);
+    const firstWeightDate = new Date(y, m - 1, d);
     if (firstWeightDate < oldestLogDate) oldestLogDate = firstWeightDate;
   }
 
@@ -120,7 +132,7 @@ export default function AnalyticsScreen() {
   const combinedData = Array.from({ length: chartDaysCount }).map((_, i) => {
     const d = new Date(today);
     d.setDate(d.getDate() - (chartDaysCount - 1 - i));
-    const dateStr = d.toISOString().split('T')[0];
+    const dateStr = formatLocalDate(d);
     const shortDay = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     
     const summaryMatch = summaries.find(s => s.summary_date === dateStr);

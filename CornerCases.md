@@ -84,7 +84,21 @@ This document covers rate limiting policies, corner cases, caching, database ind
 
 ---
 
-## 7. Additional Corner Cases & Best Practices
+## 7. Binary Streaming & Real-Time Upload Progression
+
+### Binary `multipart/form-data` vs Base64 JSON:
+- **0% Data Bloat**: Moving to binary `FormData` eliminates Base64's 33% string overhead.
+- **Zero JS Heap Memory Spikes**: The phone streams raw binary bytes directly from device storage without allocating megabyte strings in the Hermes JS runtime.
+- **Deno Multipart Support**: `scan-food` parses both `multipart/form-data` and `application/json` with zero third-party dependencies.
+
+### Exact Real-Time Network Callback:
+- The mobile app uses `XMLHttpRequest.upload.onload` via [`invokeScanFoodWithProgress`](file:///c:/SDProjects/macro-tracker/mobile/lib/scan.ts).
+- The exact millisecond the phone finishes sending the binary bytes across the network socket, `isUploaded = true` fires.
+- [`ScanningLoader`](file:///c:/SDProjects/macro-tracker/mobile/components/ScanningLoader.tsx) checks off `✅ Uploaded photo` instantly and moves to `🔍 Identifying foods...`.
+
+---
+
+## 8. Additional Corner Cases & Best Practices
 
 ### Caching:
 - Successful AI estimates from `scan-food` and `log-exercise` are cached in Redis for 10 minutes (`TTL = 600s`) keyed by `(user_id, idempotency_key)`.

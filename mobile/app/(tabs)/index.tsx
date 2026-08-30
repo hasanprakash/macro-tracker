@@ -23,6 +23,7 @@ import { DailySummaryCard } from '@/components/DailySummaryCard';
 import { MealSection } from '@/components/MealSection';
 import { AddFoodModal } from '@/components/AddFoodModal';
 import { ScanningLoader } from '@/components/ScanningLoader';
+import { invokeScanFoodWithProgress } from '@/lib/scan';
 import { MealReviewModal } from '@/components/MealReviewModal';
 import { OnboardingModal } from '@/components/OnboardingModal';
 import { AddExerciseModal } from '@/components/AddExerciseModal';
@@ -74,6 +75,8 @@ export default function HomeScreen() {
   const [dayNumber, setDayNumber] = useState<number>(1);
   const [isRefreshingHC, setIsRefreshingHC] = useState(false);
   const [scanningType, setScanningType] = useState<'meal' | 'exercise' | null>(null);
+  const [hasImage, setHasImage] = useState(false);
+  const [isUploaded, setIsUploaded] = useState(false);
   
   // Review Modal State
   const [estimate, setEstimate] = useState<MealEstimate | null>(null);
@@ -488,17 +491,26 @@ export default function HomeScreen() {
     setAddModalVisible(true);
   };
 
-  // Step 1: Call Gemini (with Idempotency Key & Rate Limit Handling)
-  const handleAnalyze = async (text?: string, imageBase64?: string) => {
+  // Step 1: Call Gemini (with Binary Upload, Idempotency Key & Real-Time Upload Progress)
+  const handleAnalyze = async (text?: string, imageBase64?: string, imageUri?: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     setScanningType('meal');
+    setHasImage(!!imageUri || !!imageBase64);
+    setIsUploaded(false);
+
     try {
       const idempotencyKey = Crypto.randomUUID();
-      const { data, error } = await supabase.functions.invoke('scan-food', {
-        body: { text, image_base64: imageBase64, meal_type: activeMealType, idempotency_key: idempotencyKey }
+      const data = await invokeScanFoodWithProgress({
+        text,
+        imageUri,
+        imageBase64,
+        mealType: activeMealType,
+        idempotencyKey,
+        onUploadComplete: () => {
+          setIsUploaded(true);
+        },
       });
       
-      if (error) throw error;
       if (data?.error) {
         const isSizeError = data.error.includes('too large') || data.error.includes('3MB') || data.error.includes('10MB');
         if (isSizeError) {
@@ -546,6 +558,8 @@ export default function HomeScreen() {
       }
     } finally {
       setScanningType(null);
+      setHasImage(false);
+      setIsUploaded(false);
     }
   };
 
@@ -1018,7 +1032,7 @@ export default function HomeScreen() {
 
       {scanningType && (
         <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? '#0F172A' : '#F8FAFC', justifyContent: 'center', zIndex: 1000 }]}>
-          <ScanningLoader type={scanningType} />
+          <ScanningLoader type={scanningType} hasImage={hasImage} isUploaded={isUploaded} />
         </View>
       )}
     </SafeAreaView>
