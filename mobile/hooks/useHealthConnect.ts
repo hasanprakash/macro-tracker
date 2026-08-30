@@ -6,6 +6,7 @@ import {
   aggregateRecord,
   openHealthConnectSettings,
 } from 'react-native-health-connect';
+import { getLocalDateString } from '@/lib/dateUtils';
 
 export function useHealthConnect(targetDateStr?: string) {
   const [steps, setSteps] = useState<number | null>(null);
@@ -38,7 +39,7 @@ export function useHealthConnect(targetDateStr?: string) {
         return; // Don't try to fetch if permission not granted
       }
       
-      const dateStr = overrideDateStr || targetDateStr || new Date().toISOString().split('T')[0];
+      const dateStr = overrideDateStr || targetDateStr || getLocalDateString();
       const [year, month, day] = dateStr.split('-').map(Number);
       
       const startTime = new Date(year, month - 1, day, 0, 0, 0);

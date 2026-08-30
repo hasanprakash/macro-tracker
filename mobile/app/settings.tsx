@@ -105,14 +105,16 @@ export default function SettingsScreen() {
       
       const { error } = await supabase
         .from('profiles')
-        .update(profileData)
-        .eq('id', user.id);
+        .upsert(
+          { ...profileData, id: user.id, updated_at: new Date().toISOString() },
+          { onConflict: 'id' }
+        );
         
       if (error) throw error;
       
-      showAlert('Success', 'Goals updated successfully');
+      await AsyncStorage.setItem('should_refresh_home_goals', 'true');
       setOnboardingVisible(false);
-      fetchProfile(); // Refresh profile after save
+      router.replace('/(tabs)');
     } catch (e: any) {
       showAlert('Error', e.message);
     }

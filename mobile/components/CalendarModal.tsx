@@ -11,6 +11,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { supabase } from '@/lib/supabase';
+import { getLocalDateString } from '@/lib/dateUtils';
 
 interface CalendarModalProps {
   visible: boolean;
@@ -59,8 +60,8 @@ export function CalendarModal({
       const startOfMonth = new Date(year, month, 1);
       const endOfMonth = new Date(year, month + 1, 0);
 
-      const startStr = startOfMonth.toISOString().split('T')[0];
-      const endStr = endOfMonth.toISOString().split('T')[0];
+      const startStr = getLocalDateString(startOfMonth);
+      const endStr = getLocalDateString(endOfMonth);
 
       try {
         const { data } = await supabase
@@ -162,7 +163,7 @@ export function CalendarModal({
               }
 
               const isSelected = dateStr === selectedDate;
-              const isToday = dateStr === new Date().toISOString().split('T')[0];
+              const isToday = dateStr === getLocalDateString();
               const hasData = loggedDates.has(dateStr);
               const dayNum = parseInt(dateStr.split('-')[2], 10);
 

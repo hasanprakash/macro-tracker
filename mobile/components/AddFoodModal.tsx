@@ -212,42 +212,49 @@ export function AddFoodModal({
               {/* Recent Foods */}
               <View style={styles.recentSection}>
                 <Text style={[styles.recentTitle, { color: textPrimary }]}>⭐ Recent foods</Text>
-                {recentFoods.length > 0 ? (
-                  recentFoods.map((recent) => (
-                    <Pressable
-                      key={recent.id}
-                      style={({ pressed }) => [
-                        styles.recentRow,
-                        { borderColor },
-                        pressed && { opacity: 0.7 },
-                      ]}
-                      onPress={() => {
-                        onQuickAdd(
-                          recent.meal_name,
-                          recent.foods,
-                          {
-                            calories: recent.total_calories,
-                            protein_g: recent.total_protein,
-                            carbs_g: recent.total_carbs,
-                            fat_g: recent.total_fat,
-                          }
-                        );
-                        handleClose();
-                      }}
-                    >
-                      <View style={styles.recentInfo}>
-                        <Text style={[styles.recentName, { color: textPrimary }]}>
-                          {recent.meal_name}
-                        </Text>
-                        <Text style={[styles.recentCal, { color: textSecondary }]}>
-                          {recent.total_calories} kcal
-                        </Text>
-                      </View>
-                      <View style={styles.addIconWrap}>
-                        <Ionicons name="add" size={20} color="#10B981" />
-                      </View>
-                    </Pressable>
-                  ))
+                {recentFoods.filter((r) => (r.total_calories || 0) > 0).length > 0 ? (
+                  recentFoods
+                    .filter((r) => (r.total_calories || 0) > 0)
+                    .map((recent) => (
+                      <Pressable
+                        key={recent.id}
+                        style={({ pressed }) => [
+                          styles.recentRow,
+                          { borderColor },
+                          pressed && { opacity: 0.7 },
+                        ]}
+                        onPress={() => {
+                          const validFoods = Array.isArray(recent.foods)
+                            ? recent.foods.filter((f) => (f.calories || 0) > 0 && (f.quantity || 0) > 0)
+                            : [];
+                          if (validFoods.length === 0 || (recent.total_calories || 0) <= 0) return;
+
+                          onQuickAdd(
+                            recent.meal_name,
+                            validFoods,
+                            {
+                              calories: recent.total_calories,
+                              protein_g: recent.total_protein,
+                              carbs_g: recent.total_carbs,
+                              fat_g: recent.total_fat,
+                            }
+                          );
+                          handleClose();
+                        }}
+                      >
+                        <View style={styles.recentInfo}>
+                          <Text style={[styles.recentName, { color: textPrimary }]}>
+                            {recent.meal_name}
+                          </Text>
+                          <Text style={[styles.recentCal, { color: textSecondary }]}>
+                            {recent.total_calories} kcal
+                          </Text>
+                        </View>
+                        <View style={styles.addIconWrap}>
+                          <Ionicons name="add" size={20} color="#10B981" />
+                        </View>
+                      </Pressable>
+                    ))
                 ) : (
                   <Text style={{ color: textSecondary, marginTop: 8, fontStyle: 'italic' }}>
                     No recent foods yet.

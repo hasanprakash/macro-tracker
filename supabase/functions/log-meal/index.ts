@@ -152,15 +152,24 @@ Deno.serve(async (req) => {
     }
     tRateLimit = Math.round(performance.now() - tRateLimitStart);
 
-    // ── 4. Validate Payload ───────────────────────────────────────────
+    // ── 4. Validate Payload & Filter Zero-Calorie Items ─────────────
     const tParseStart = performance.now();
     const body = await req.json();
     const { meal_type, meal_name, title, foods, totals, image_base64, meal_id, idempotency_key } = body;
     const clientMealId = meal_id || idempotency_key || null;
 
-    if (!meal_type || !meal_name || !Array.isArray(foods) || foods.length === 0 || !totals) {
+    const validFoods = Array.isArray(foods)
+      ? foods.filter((f: any) => (Number(f.calories) || 0) > 0 && (Number(f.quantity) || 0) > 0)
+      : [];
+
+    const totalCals = Number(totals?.calories) || validFoods.reduce((s: number, f: any) => s + (Number(f.calories) || 0), 0);
+    const totalProtein = Number(totals?.protein_g) || validFoods.reduce((s: number, f: any) => s + (Number(f.protein_g) || 0), 0);
+    const totalCarbs = Number(totals?.carbs_g) || validFoods.reduce((s: number, f: any) => s + (Number(f.carbs_g) || 0), 0);
+    const totalFat = Number(totals?.fat_g) || validFoods.reduce((s: number, f: any) => s + (Number(f.fat_g) || 0), 0);
+
+    if (!meal_type || !meal_name || validFoods.length === 0 || totalCals <= 0) {
       return new Response(
-        JSON.stringify({ error: 'Missing required fields: meal_type, meal_name, foods, totals' }),
+        JSON.stringify({ error: 'Cannot log a meal with 0 calories or empty food items.' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -204,14 +213,14 @@ Deno.serve(async (req) => {
     const { data: rpcData, error: rpcError } = await supabase.rpc('insert_meal_transaction', {
       p_meal_type: meal_type,
       p_meal_name: meal_name,
-      p_calories: totals.calories,
-      p_protein: totals.protein_g,
-      p_carbs: totals.carbs_g,
-      p_fat: totals.fat_g,
+      p_calories: totalCals,
+      p_protein: totalProtein,
+      p_carbs: totalCarbs,
+      p_fat: totalFat,
       p_image_path: imagePath,
-      p_raw_input: { foods },
-      p_ai_response_json: { meal_name, title, foods, totals },
-      p_foods: foods,
+      p_raw_input: { foods: validFoods },
+      p_ai_response_json: { meal_name, title, foods: validFoods, totals: { calories: totalCals, protein_g: totalProtein, carbs_g: totalCarbs, fat_g: totalFat } },
+      p_foods: validFoods,
       p_title: title,
       p_meal_id: clientMealId
     });

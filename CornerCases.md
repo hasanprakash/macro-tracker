@@ -98,7 +98,63 @@ This document covers rate limiting policies, corner cases, caching, database ind
 
 ---
 
-## 8. Additional Corner Cases & Best Practices
+## 8. Calorie Intake Alerts & Thresholds
+
+### 1. Under-Eating Threshold & BMR Override:
+- **Condition**: `calories < under_eating_threshold`
+- **Calculation Rule**:
+  - Default: `under_eating_threshold = calculated_BMR` (e.g. 1369 kcal).
+  - Calculated Maintenance: `maintenance_calories = calculated_BMR * 1.2` (e.g. 1643 kcal).
+  - **Below-BMR Override**: When a user overrides target calories below their BMR (e.g. chooses 1300 kcal), `under_eating_threshold` is set to the user's override (1300 kcal), while `maintenance_calories` remains strictly preserved at the formula calculation (`1369 * 1.2 = 1643 kcal`).
+- **Visuals**:
+  - Calorie Ring: Red (`#EF4444`) when `calories < under_eating_threshold`
+  - Icon: Gentle breathing `information-circle` in Red (`#EF4444`)
+- **Action on Tap**: Shows educational modal explaining exact calories needed to reach the threshold (`under_eating_threshold - calories`) and risks of under-eating.
+
+### 2. Over-Eating Caution (500 kcal – 600 kcal surplus above maintenance):
+- **Condition**: `calories - maintenance_calories >= 500 && surplus <= 600`
+- **Visuals**:
+  - Calorie Ring: Dangerous Electric Purple (`#A855F7`)
+  - Icon: Gentle breathing `information-circle` in Purple (`#A855F7`)
+- **Action on Tap**: Shows "Time to Slow Down!" alert guiding the user to pace intake.
+
+### 3. Over-Eating High Surplus Alert (> 600 kcal surplus above maintenance):
+- **Condition**: `calories - maintenance_calories > 600`
+- **Visuals**:
+  - Calorie Ring: Dangerous Intense Purple (`#9333EA`)
+  - Icon: Gentle breathing `warning` in Purple (`#A855F7`)
+- **Action on Tap**: Shows "High Calorie Surplus Alert!" advising user to halt further intake and reset fresh tomorrow.
+
+---
+
+## 9. Zero-Calorie Meal & Food Prevention
+
+### Multi-Layer Defense:
+1. **Mobile UI Review Modal**:
+   - Items reduced to 0 quantity / 0 calories are excluded from the save payload.
+   - If total calories reaches 0, the Save button switches to "Discard Meal" (in Create mode) or "Delete Meal" (in Edit mode).
+2. **Edge Function (`log-meal`)**:
+   - Validates `validFoods.length > 0` and `total_calories > 0`.
+   - Rejects zero-calorie payloads with `HTTP 400 Bad Request`.
+3. **Database Transaction (`insert_meal_transaction`)**:
+   - Enforces `p_calories > 0`.
+   - Filters out any `0` or negative calorie / quantity items inside `FOR v_food IN SELECT * FROM jsonb_array_elements(p_foods)`.
+   - Never saves 0-calorie food items to `meal_food` or `recent_foods`.
+
+---
+
+## 10. Animation & Haptic Feedback Guarding
+
+### State Preservation on Non-Macro Updates:
+- [`DailySummaryCard`](file:///c:/SDProjects/macro-tracker/mobile/components/DailySummaryCard.tsx) and [`CountingNumber`](file:///c:/SDProjects/macro-tracker/mobile/components/DailySummaryCard.tsx#L24) maintain `prevMetricsRef` and `isFirstLoadRef`.
+- **What this prevents**:
+  - Updating weight in `LogWeightModal` or `Settings` updates the user's profile state, but does not alter meal macros.
+  - Previously, prop updates triggered the full 16-step haptic vibration sequence and wiped the progress rings to 0.
+  - Now, if calories, protein, carbs, and fat have not changed, the component skips the entrance animation and suppresses haptic feedback completely.
+
+---
+
+## 11. Additional Corner Cases & Best Practices
 
 ### Caching:
 - Successful AI estimates from `scan-food` and `log-exercise` are cached in Redis for 10 minutes (`TTL = 600s`) keyed by `(user_id, idempotency_key)`.

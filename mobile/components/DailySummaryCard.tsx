@@ -19,33 +19,71 @@ import * as Haptics from 'expo-haptics';
 
 import { TextInput } from 'react-native';
 
-const AnimatedTextInput = Animated.createAnimatedComponent(TextInput);
-
 function CountingNumber({ value, isLoading, style, prefix = '', suffix = '' }: { value: number; isLoading?: boolean; style: any; prefix?: string; suffix?: string }) {
-  const animatedValue = useSharedValue(0);
+  const [displayValue, setDisplayValue] = React.useState(value);
+  const isFirstRender = React.useRef(true);
+  const prevValueRef = React.useRef(value);
 
   useEffect(() => {
     if (isLoading) {
-      animatedValue.value = 0;
-    } else {
-      animatedValue.value = withDelay(200, withTiming(value, { duration: 800, easing: Easing.out(Easing.cubic) }));
+      return;
+    }
+
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      let startTime: number | null = null;
+      const duration = 800;
+      let cancelled = false;
+
+      const timer = setTimeout(() => {
+        const step = (timestamp: number) => {
+          if (cancelled) return;
+          if (!startTime) startTime = timestamp;
+          const progress = Math.min((timestamp - startTime) / duration, 1);
+          const eased = 1 - Math.pow(1 - progress, 3);
+          setDisplayValue(Math.round(value * eased));
+          if (progress < 1) requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+      }, 200);
+
+      prevValueRef.current = value;
+      return () => {
+        cancelled = true;
+        clearTimeout(timer);
+      };
+    } else if (prevValueRef.current !== value) {
+      let startTime: number | null = null;
+      const duration = 500;
+      let cancelled = false;
+      const startVal = prevValueRef.current;
+      const targetVal = value;
+
+      const step = (timestamp: number) => {
+        if (cancelled) return;
+        if (!startTime) startTime = timestamp;
+        const progress = Math.min((timestamp - startTime) / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        setDisplayValue(Math.round(startVal + (targetVal - startVal) * eased));
+        if (progress < 1) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+
+      prevValueRef.current = value;
+      return () => {
+        cancelled = true;
+      };
     }
   }, [value, isLoading]);
 
-  const animatedProps = useAnimatedProps(() => {
-    return {
-      text: isLoading ? '...' : `${prefix}${Math.round(animatedValue.value)}${suffix}`,
-    } as any;
-  });
+  if (isLoading) {
+    return <Text style={style}>...</Text>;
+  }
 
   return (
-    <AnimatedTextInput
-      underlineColorAndroid="transparent"
-      editable={false}
-      value={isLoading ? '...' : `${prefix}${Math.round(value)}${suffix}`}
-      animatedProps={animatedProps}
-      style={[style, { padding: 0, margin: 0 }]}
-    />
+    <Text style={style}>
+      {prefix}{Math.round(displayValue)}{suffix}
+    </Text>
   );
 }
 
@@ -141,6 +179,9 @@ interface DailySummaryProps {
   carbs: number;
   fat: number;
   targetCalories?: number | null;
+  baseTargetCalories?: number | null;
+  activityCredit?: number;
+  maintenanceCalories?: number | null;
   targetProtein?: number | null;
   targetCarbs?: number | null;
   targetFat?: number | null;
@@ -151,7 +192,8 @@ interface DailySummaryProps {
 
 export function DailySummaryCard({ 
   calories, protein, carbs, fat, 
-  targetCalories, targetProtein, targetCarbs, targetFat,
+  targetCalories, baseTargetCalories, activityCredit = 0,
+  maintenanceCalories, targetProtein, targetCarbs, targetFat,
   burnedCalories = 0,
   underEatingThreshold,
   isLoading
@@ -161,6 +203,7 @@ export function DailySummaryCard({
   const { showAlert } = useAlert();
 
   const tCals = targetCalories || 2000;
+  const mCals = maintenanceCalories || tCals;
   const tPro = targetProtein || 150;
   const tCarbs = targetCarbs || 250;
   const tFat = targetFat || 70;
@@ -173,8 +216,23 @@ export function DailySummaryCard({
   const textSecondary = isDark ? '#94A3B8' : '#64748B';
   const macroBg = isDark ? '#0F172A' : '#F1F5F9';
   
+  // ── Under-eating and Over-eating Thresholds ──────────────────
   const isUnderEating = underEatingThreshold ? calories < underEatingThreshold : false;
-  const ringColor = isUnderEating ? '#EF4444' : (isDark ? '#34D399' : '#10B981');
+  const surplus = calories - mCals;
+  const isOverEatingCaution = surplus >= 500 && surplus <= 600;
+  const isOverEatingAlert = surplus > 600;
+  const hasAlert = isUnderEating || isOverEatingCaution || isOverEatingAlert;
+
+  // Ring Color: Red for undereating, Dangerous Purple for overeating, Green for target
+  let ringColor = isDark ? '#34D399' : '#10B981';
+  if (isUnderEating) {
+    ringColor = '#EF4444'; // Red
+  } else if (isOverEatingAlert) {
+    ringColor = '#9333EA'; // Intense Deep Purple
+  } else if (isOverEatingCaution) {
+    ringColor = '#A855F7'; // Dangerous Electric Purple
+  }
+
   const trackColor = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
 
   // ── Entrance Animations ────────────────────────────────────
@@ -192,61 +250,99 @@ export function DailySummaryCard({
 
   const calPercent = getPercent(calories, tCals);
 
+  const isFirstLoadRef = React.useRef(true);
+  const prevMetricsRef = React.useRef({ calories: -1, protein: -1, carbs: -1, fat: -1, tCals: -1, tPro: -1, tCarbs: -1, tFat: -1 });
+
   useEffect(() => {
     if (isLoading) {
+      return;
+    }
+
+    const prev = prevMetricsRef.current;
+    const hasChanged = 
+      prev.calories !== calories ||
+      prev.protein !== protein ||
+      prev.carbs !== carbs ||
+      prev.fat !== fat ||
+      prev.tCals !== tCals ||
+      prev.tPro !== tPro ||
+      prev.tCarbs !== tCarbs ||
+      prev.tFat !== tFat;
+
+    // If nothing changed (e.g. weight logged or returning from modal), skip entrance animation & haptics!
+    if (!isFirstLoadRef.current && !hasChanged) {
+      return;
+    }
+
+    prevMetricsRef.current = { calories, protein, carbs, fat, tCals, tPro, tCarbs, tFat };
+    const isInitial = isFirstLoadRef.current;
+    isFirstLoadRef.current = false;
+
+    const timeoutIds: ReturnType<typeof setTimeout>[] = [];
+
+    // Play structured haptic feedback ONLY on true initial dashboard load
+    if (isInitial) {
+      const playHaptics = () => {
+        for (let i = 0; i < 12; i++) {
+          const timeOffset = 700 * Math.pow(i / 11, 1.5);
+          timeoutIds.push(setTimeout(() => Haptics.selectionAsync(), 200 + timeOffset));
+        }
+        timeoutIds.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium), 1100));
+        timeoutIds.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium), 1250));
+        timeoutIds.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy), 1400));
+        timeoutIds.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy), 1510));
+      };
+      playHaptics();
+    }
+
+    if (isInitial) {
+      // Ring progress — animate after card appears
       ringProgress.value = 0;
+      ringProgress.value = withDelay(200, withTiming(calPercent, { duration: 800, easing: Easing.out(Easing.cubic) }));
+
+      // Macro bars — staggered after ring finishes
+      const barDelay = 1100;
+      const barDuration = 700;
+      const barEasing = Easing.out(Easing.cubic);
+      const barStagger = 150;
+
       proteinBarWidth.value = 0;
       carbsBarWidth.value = 0;
       fatBarWidth.value = 0;
       proteinOpacity.value = 0;
       carbsOpacity.value = 0;
       fatOpacity.value = 0;
-      return;
+
+      proteinOpacity.value = withDelay(barDelay, withTiming(1, { duration: 300 }));
+      proteinBarWidth.value = withDelay(barDelay, withTiming(getPercent(protein, tPro), { duration: barDuration, easing: barEasing }));
+
+      carbsOpacity.value = withDelay(barDelay + barStagger, withTiming(1, { duration: 300 }));
+      carbsBarWidth.value = withDelay(barDelay + barStagger, withTiming(getPercent(carbs, tCarbs), { duration: barDuration, easing: barEasing }));
+
+      fatOpacity.value = withDelay(barDelay + barStagger * 2, withTiming(1, { duration: 300 }));
+      fatBarWidth.value = withDelay(barDelay + barStagger * 2, withTiming(getPercent(fat, tFat), { duration: barDuration, easing: barEasing }));
+    } else {
+      // Smooth animated transition for updates + rich multi-step haptic sequence
+      const playUpdateHaptics = () => {
+        // Rotary ticking as numbers roll and ring expands
+        for (let i = 0; i < 7; i++) {
+          const delay = Math.round(450 * Math.pow(i / 6, 1.4));
+          timeoutIds.push(setTimeout(() => Haptics.selectionAsync(), delay));
+        }
+        // Satisfying medium + heavy completion settle as macros lock in
+        timeoutIds.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium), 500));
+        timeoutIds.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy), 620));
+      };
+      playUpdateHaptics();
+
+      ringProgress.value = withTiming(calPercent, { duration: 500, easing: Easing.out(Easing.cubic) });
+      proteinOpacity.value = 1;
+      carbsOpacity.value = 1;
+      fatOpacity.value = 1;
+      proteinBarWidth.value = withTiming(getPercent(protein, tPro), { duration: 500, easing: Easing.out(Easing.cubic) });
+      carbsBarWidth.value = withTiming(getPercent(carbs, tCarbs), { duration: 500, easing: Easing.out(Easing.cubic) });
+      fatBarWidth.value = withTiming(getPercent(fat, tFat), { duration: 500, easing: Easing.out(Easing.cubic) });
     }
-
-    const timeoutIds: ReturnType<typeof setTimeout>[] = [];
-
-    // Play structured haptic feedback sequence alongside animations
-    const playHaptics = () => {
-      // Ring sweeping up (12 ticks, decelerating frequency)
-      for (let i = 0; i < 12; i++) {
-        const timeOffset = 700 * Math.pow(i / 11, 1.5);
-        timeoutIds.push(setTimeout(() => Haptics.selectionAsync(), 200 + timeOffset));
-      }
-      // Macro bars hitting (staggered delay 1100, 1250, 1400)
-      timeoutIds.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium), 1100));
-      timeoutIds.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium), 1250));
-      timeoutIds.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy), 1400));
-      timeoutIds.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy), 1510));
-      
-    };
-    playHaptics();
-
-    // Ring progress — animate after card appears
-    ringProgress.value = 0;
-    ringProgress.value = withDelay(200, withTiming(calPercent, { duration: 800, easing: Easing.out(Easing.cubic) }));
-
-    // Macro bars — staggered after ring finishes
-    const barDelay = 1100;
-    const barDuration = 700;
-    const barEasing = Easing.out(Easing.cubic);
-    const barStagger = 150; // Increased stagger from 120ms to 150ms for better distinction
-
-    proteinBarWidth.value = 0;
-    carbsBarWidth.value = 0;
-    fatBarWidth.value = 0;
-    proteinOpacity.value = 0;
-    carbsOpacity.value = 0;
-    fatOpacity.value = 0;
-
-    proteinOpacity.value = withDelay(barDelay, withTiming(1, { duration: 300 }));
-    proteinBarWidth.value = withDelay(barDelay, withTiming(getPercent(protein, tPro), { duration: barDuration, easing: barEasing }));
-
-    carbsOpacity.value = withDelay(barDelay + barStagger, withTiming(1, { duration: 300 }));
-    carbsBarWidth.value = withDelay(barDelay + barStagger, withTiming(getPercent(carbs, tCarbs), { duration: barDuration, easing: barEasing }));
-
-    fatOpacity.value = withDelay(barDelay + barStagger * 2, withTiming(1, { duration: 300 }));
-    fatBarWidth.value = withDelay(barDelay + barStagger * 2, withTiming(getPercent(fat, tFat), { duration: barDuration, easing: barEasing }));
 
     return () => {
       timeoutIds.forEach(clearTimeout);
@@ -254,31 +350,57 @@ export function DailySummaryCard({
   }, [calories, protein, carbs, fat, calPercent, tPro, tCarbs, tFat, isLoading]);
 
   const [animatedRingPercent, setAnimatedRingPercent] = React.useState(0);
+  const ringInitialRef = React.useRef(true);
+  const prevRingPercentRef = React.useRef(0);
+
   useEffect(() => {
     if (isLoading) {
-      setAnimatedRingPercent(0);
       return;
     }
 
-    let cancelled = false;
-    let startTime: number | null = null;
-    const duration = 800;
-    const delay = 200;
+    if (ringInitialRef.current) {
+      ringInitialRef.current = false;
+      let cancelled = false;
+      let startTime: number | null = null;
+      const duration = 800;
+      const delay = 200;
 
-    const timeout = setTimeout(() => {
+      const timeout = setTimeout(() => {
+        const animate = (timestamp: number) => {
+          if (cancelled) return;
+          if (!startTime) startTime = timestamp;
+          const elapsed = timestamp - startTime;
+          const progress = Math.min(elapsed / duration, 1);
+          const eased = 1 - Math.pow(1 - progress, 3);
+          setAnimatedRingPercent(calPercent * eased);
+          if (progress < 1) requestAnimationFrame(animate);
+        };
+        requestAnimationFrame(animate);
+      }, delay);
+
+      prevRingPercentRef.current = calPercent;
+      return () => { cancelled = true; clearTimeout(timeout); };
+    } else if (prevRingPercentRef.current !== calPercent) {
+      let cancelled = false;
+      let startTime: number | null = null;
+      const duration = 500;
+      const startPercent = prevRingPercentRef.current;
+      const targetPercent = calPercent;
+
       const animate = (timestamp: number) => {
         if (cancelled) return;
         if (!startTime) startTime = timestamp;
         const elapsed = timestamp - startTime;
         const progress = Math.min(elapsed / duration, 1);
         const eased = 1 - Math.pow(1 - progress, 3);
-        setAnimatedRingPercent(calPercent * eased);
+        setAnimatedRingPercent(startPercent + (targetPercent - startPercent) * eased);
         if (progress < 1) requestAnimationFrame(animate);
       };
       requestAnimationFrame(animate);
-    }, delay);
 
-    return () => { cancelled = true; clearTimeout(timeout); };
+      prevRingPercentRef.current = calPercent;
+      return () => { cancelled = true; };
+    }
   }, [calPercent, isLoading]);
 
   const proteinBarStyle = useAnimatedStyle(() => ({
@@ -300,12 +422,12 @@ export function DailySummaryCard({
   const carbsCardStyle = useAnimatedStyle(() => ({ opacity: carbsOpacity.value }));
   const fatCardStyle = useAnimatedStyle(() => ({ opacity: fatOpacity.value }));
 
-  // Gentle breathing animation for undereating indicator
+  // Gentle breathing animation for warning/info indicators
   const breathingScale = useSharedValue(1);
   const breathingOpacity = useSharedValue(0.85);
 
   useEffect(() => {
-    if (isUnderEating) {
+    if (hasAlert) {
       breathingScale.value = withRepeat(
         withSequence(
           withTiming(1.15, { duration: 1500, easing: Easing.inOut(Easing.ease) }),
@@ -326,30 +448,93 @@ export function DailySummaryCard({
       breathingScale.value = 1;
       breathingOpacity.value = 1;
     }
-  }, [isUnderEating]);
+  }, [hasAlert]);
 
   const breathingStyle = useAnimatedStyle(() => ({
     transform: [{ scale: breathingScale.value }],
     opacity: breathingOpacity.value,
   }));
 
-  const handleInfoPress = () => {
+  const handleUnderEatingPress = () => {
     if (!underEatingThreshold) return;
     const diff = Math.round(underEatingThreshold - calories);
     showAlert(
       'Eat More to Fuel Your Body!',
-      `You need ${Math.ceil(diff)} more kcal to hit your minimum requirement.\n\nEating too little causes muscle loss, severe energy drops, and metabolic adaptation. Make sure to properly fuel your body!`
+      `You need ${Math.ceil(diff)} more kcal to hit your minimum requirement (${Math.round(underEatingThreshold)} kcal).\n\nEating too little causes muscle loss, severe energy drops, and metabolic adaptation. Make sure to properly fuel your body!`
     );
+  };
+
+  const handleOverEatingCautionPress = () => {
+    const diff = Math.round(surplus);
+    showAlert(
+      'Time to Slow Down!',
+      `You are currently ${diff} kcal above your daily maintenance level (${Math.round(mCals)} kcal).\n\nA moderate surplus is fine on occasion, but eating further above maintenance will lead to unwanted fat gain. Consider pacing your calorie intake for the rest of the day!`
+    );
+  };
+
+  const handleOverEatingAlertPress = () => {
+    const diff = Math.round(surplus);
+    showAlert(
+      'High Calorie Surplus Alert!',
+      `You have consumed ${diff} kcal above your daily maintenance level today (${Math.round(calories)} kcal total vs ${Math.round(mCals)} kcal maintenance).\n\nA large surplus causes significant fat accumulation. If your goal is staying lean or managing weight, consider stopping further calorie consumption today and resetting fresh tomorrow!`
+    );
+  };
+
+  const handleTargetBudgetPress = () => {
+    if (activityCredit && activityCredit > 0 && baseTargetCalories) {
+      const base = Math.round(baseTargetCalories);
+      const credit = Math.round(activityCredit);
+      const total = Math.round(tCals);
+      const burned = Math.round(burnedCalories);
+      showAlert(
+        '⚡ Daily Calorie Budget',
+        `• Base Goal: ${base} kcal\n• Activity Bonus: +${credit} kcal (70% of ${burned} kcal burned)\n─────────────────────\n• Total Target: ${total} kcal\n\nBurning calories through workouts increases your daily calorie allowance so you can fuel your recovery!`
+      );
+    }
+  };
+
+  const handleBurnedCardPress = () => {
+    if (burnedCalories > 0) {
+      const credit = activityCredit && activityCredit > 0 ? Math.round(activityCredit) : Math.round(burnedCalories * 0.7);
+      showAlert(
+        '🔥 Burned Calories',
+        `You burned ${Math.round(burnedCalories)} kcal through exercise today.\n\n70% (+${credit} kcal) has been added to your daily calorie budget to properly fuel your activity.`
+      );
+    } else {
+      showAlert(
+        '🔥 Burned Calories',
+        'Log your workouts or connect Health Connect to track burned calories and earn activity bonus calories automatically!'
+      );
+    }
   };
 
   return (
     <View style={styles.container}>
       <View style={[styles.mainCard, { backgroundColor: cardBg }]}>
         
+        {/* Undereating Icon (Red) */}
         {isUnderEating && (
-          <Pressable style={styles.infoButton} onPress={handleInfoPress}>
+          <Pressable style={styles.infoButton} onPress={handleUnderEatingPress}>
             <Animated.View style={breathingStyle}>
               <Ionicons name="information-circle" size={24} color="#EF4444" />
+            </Animated.View>
+          </Pressable>
+        )}
+
+        {/* Overeating Caution Icon (Purple - 500-600 surplus) */}
+        {isOverEatingCaution && (
+          <Pressable style={styles.infoButton} onPress={handleOverEatingCautionPress}>
+            <Animated.View style={breathingStyle}>
+              <Ionicons name="information-circle" size={24} color="#A855F7" />
+            </Animated.View>
+          </Pressable>
+        )}
+
+        {/* Overeating High Alert Icon (Intense Purple - >600 surplus) */}
+        {isOverEatingAlert && (
+          <Pressable style={styles.infoButton} onPress={handleOverEatingAlertPress}>
+            <Animated.View style={breathingStyle}>
+              <Ionicons name="warning" size={24} color="#A855F7" />
             </Animated.View>
           </Pressable>
         )}
@@ -370,18 +555,30 @@ export function DailySummaryCard({
               trackColor={trackColor}
               cardBg={cardBg}
             >
-              <View style={styles.centerRingContent}>
+              <Pressable
+                style={styles.centerRingContent}
+                onPress={handleTargetBudgetPress}
+                disabled={!activityCredit || activityCredit <= 0}
+              >
                 <Text style={[styles.ringLabel, { color: textSecondary }]}>Remaining</Text>
                 <CountingNumber value={Math.round(remainingCals)} isLoading={isLoading} style={[styles.ringValue, { color: textPrimary }]} />
-                <Text style={[styles.ringSub, { color: textSecondary }]}>/ {Math.round(tCals)} kcal</Text>
-              </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
+                  <Text style={[styles.ringSub, { color: textSecondary }]}>/ {Math.round(tCals)} kcal</Text>
+                  {activityCredit && activityCredit > 0 ? (
+                    <Ionicons name="flash" size={11} color="#F59E0B" />
+                  ) : null}
+                </View>
+              </Pressable>
             </PureCircularProgress>
           </View>
 
-          <View style={styles.sideStat}>
-            <Text style={[styles.sideStatLabel, { color: textSecondary }]}>Burned</Text>
+          <Pressable style={styles.sideStat} onPress={handleBurnedCardPress}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+              <Text style={[styles.sideStatLabel, { color: textSecondary }]}>Burned</Text>
+              <Ionicons name="information-circle-outline" size={11} color={textSecondary} />
+            </View>
             <CountingNumber value={Math.round(burnedCalories)} isLoading={isLoading} style={[styles.sideStatValue, { color: '#F59E0B' }]} />
-          </View>
+          </Pressable>
         </View>
 
         {/* Macros Row */}
@@ -420,16 +617,16 @@ export function DailySummaryCard({
 
 const styles = StyleSheet.create({
   container: {
-    marginBottom: 16,
+    marginBottom: 20,
   },
   mainCard: {
-    borderRadius: 28,
+    borderRadius: 24,
     padding: 24,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    elevation: 3,
     position: 'relative',
   },
   infoButton: {
@@ -443,44 +640,44 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 2,
+    marginBottom: 24,
   },
   sideStat: {
+    flex: 1,
     alignItems: 'center',
-    width: 70,
   },
   sideStatLabel: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '500',
     marginBottom: 4,
   },
   sideStatValue: {
-    fontSize: 22,
-    fontWeight: '800',
+    fontSize: 20,
+    fontWeight: '700',
   },
   centerRingWrapper: {
-    width: 160,
-    height: 160,
     alignItems: 'center',
     justifyContent: 'center',
   },
   centerRingContent: {
+    position: 'absolute',
     alignItems: 'center',
     justifyContent: 'center',
   },
   ringLabel: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '500',
     marginBottom: 2,
   },
   ringValue: {
-    fontSize: 42,
+    fontSize: 28,
     fontWeight: '800',
-    marginBottom: 2,
+    letterSpacing: -0.5,
   },
   ringSub: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '500',
+    marginTop: 2,
   },
   macrosRow: {
     flexDirection: 'row',
@@ -488,24 +685,23 @@ const styles = StyleSheet.create({
   },
   macroCard: {
     flex: 1,
-    padding: 12,
     borderRadius: 16,
+    padding: 12,
   },
   macroName: {
-    fontSize: 14,
-    fontWeight: '700',
-    marginBottom: 6,
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 4,
   },
   macroAmount: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '500',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   progressBarBg: {
     height: 6,
-    backgroundColor: 'rgba(150,150,150,0.2)',
     borderRadius: 3,
-    width: '100%',
+    backgroundColor: 'rgba(150, 150, 150, 0.2)',
     overflow: 'hidden',
   },
   progressBarFill: {

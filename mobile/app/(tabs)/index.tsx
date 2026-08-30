@@ -10,7 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import * as Crypto from 'expo-crypto';
 
@@ -18,6 +18,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { supabase } from '@/lib/supabase';
 import type { FoodItem, MealEstimate, MealTotals, MealEntry, RecentFood, Profile, ExerciseEntry, WeightLog } from '@/lib/types';
 import { ExerciseSource, CalculationMethod } from '@/lib/constants';
+import { getLocalDateString, getLocalDayBoundsIso } from '@/lib/dateUtils';
 
 import { DailySummaryCard } from '@/components/DailySummaryCard';
 import { MealSection } from '@/components/MealSection';
@@ -45,6 +46,32 @@ const MEAL_TYPES = [
   { title: 'Snacks', icon: 'cafe-outline' as const, color: '#10B981' },
 ];
 
+const extractEdgeFunctionError = async (error: any): Promise<string> => {
+  if (!error) return 'An unexpected error occurred.';
+  try {
+    if (error.context) {
+      if (typeof error.context.json === 'function') {
+        const body = await error.context.json();
+        if (body?.error) return body.error;
+        if (body?.message) return body.message;
+      }
+      if (typeof error.context.text === 'function') {
+        const text = await error.context.text();
+        if (text) {
+          try {
+            const parsed = JSON.parse(text);
+            if (parsed?.error) return parsed.error;
+            if (parsed?.message) return parsed.message;
+          } catch (e) {
+            return text;
+          }
+        }
+      }
+    }
+  } catch (e) {}
+  return error.message || 'Edge Function returned an error.';
+};
+
 export default function HomeScreen() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
@@ -71,7 +98,7 @@ export default function HomeScreen() {
   const [addExerciseVisible, setAddExerciseVisible] = useState(false);
   const [addWeightVisible, setAddWeightVisible] = useState(false);
   const [calendarVisible, setCalendarVisible] = useState(false);
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState<string>(getLocalDateString());
   const [dayNumber, setDayNumber] = useState<number>(1);
   const [isRefreshingHC, setIsRefreshingHC] = useState(false);
   const [scanningType, setScanningType] = useState<'meal' | 'exercise' | null>(null);
@@ -107,89 +134,102 @@ export default function HomeScreen() {
 
   const fetchDashboardData = useCallback(async (uid: string, dateStr: string) => {
     setIsDashboardLoading(true);
-    // 1. Fetch daily summary
-    const { data: summaryData } = await supabase
-      .from('daily_summaries')
-      .select('*')
-      .eq('user_id', uid)
-      .eq('summary_date', dateStr)
-      .single();
+    try {
+      // 1. Fetch daily summary (using maybeSingle so empty table doesn't throw)
+      const { data: summaryData } = await supabase
+        .from('daily_summaries')
+        .select('*')
+        .eq('user_id', uid)
+        .eq('summary_date', dateStr)
+        .maybeSingle();
 
-    if (summaryData) {
-      setDailySummary({
-        calories: Number(summaryData.total_calories || 0),
-        protein: Number(summaryData.total_protein || 0),
-        carbs: Number(summaryData.total_carbs || 0),
-        fat: Number(summaryData.total_fat || 0),
-      });
-    } else {
-      setDailySummary({ calories: 0, protein: 0, carbs: 0, fat: 0 });
+      if (summaryData) {
+        setDailySummary({
+          calories: Number(summaryData.total_calories || 0),
+          protein: Number(summaryData.total_protein || 0),
+          carbs: Number(summaryData.total_carbs || 0),
+          fat: Number(summaryData.total_fat || 0),
+        });
+      } else {
+        setDailySummary({ calories: 0, protein: 0, carbs: 0, fat: 0 });
+      }
+
+      const { startIso, endIso } = getLocalDayBoundsIso(dateStr);
+
+      // 2. Fetch today's meal entries with foods
+      const { data: entriesData } = await supabase
+        .from('meal_entries')
+        .select('*, meal_food(*)')
+        .eq('user_id', uid)
+        .gte('created_at', startIso)
+        .lte('created_at', endIso)
+        .order('created_at', { ascending: true });
+
+      if (entriesData) {
+        setTodaysEntries(entriesData as MealEntry[]);
+      } else {
+        setTodaysEntries([]);
+      }
+
+      // 3. Fetch recent foods (limit 10)
+      const { data: recentsData } = await supabase
+        .from('recent_foods')
+        .select('*')
+        .eq('user_id', uid)
+        .order('last_used_at', { ascending: false })
+        .limit(10);
+
+      if (recentsData) {
+        setRecentFoods(recentsData as RecentFood[]);
+      }
+
+      // 4. Fetch today's exercises
+      const { data: exercisesData } = await supabase
+        .from('exercises')
+        .select('*')
+        .eq('user_id', uid)
+        .eq('exercise_date', dateStr);
+
+      if (exercisesData) {
+        setTodaysExercises(exercisesData as ExerciseEntry[]);
+      } else {
+        setTodaysExercises([]);
+      }
+
+      // 5. Fetch today's weight
+      const { data: weightData } = await supabase
+        .from('weight_logs')
+        .select('*')
+        .eq('user_id', uid)
+        .gte('recorded_at', startIso)
+        .lte('recorded_at', endIso)
+        .order('recorded_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (weightData) {
+        setTodaysWeight(weightData as WeightLog);
+      } else {
+        setTodaysWeight(null);
+      }
+    } catch (err) {
+      console.error("fetchDashboardData error:", err);
+    } finally {
+      setIsDashboardLoading(false);
     }
-
-    // 2. Fetch today's meal entries with foods
-    const { data: entriesData } = await supabase
-      .from('meal_entries')
-      .select('*, meal_food(*)')
-      .eq('user_id', uid)
-      .gte('created_at', `${dateStr}T00:00:00.000Z`)
-      .lt('created_at', `${dateStr}T23:59:59.999Z`)
-      .order('created_at', { ascending: true });
-
-    if (entriesData) {
-      setTodaysEntries(entriesData as MealEntry[]);
-    } else {
-      setTodaysEntries([]);
-    }
-
-    // 3. Fetch recent foods (limit 10)
-    const { data: recentsData } = await supabase
-      .from('recent_foods')
-      .select('*')
-      .eq('user_id', uid)
-      .order('last_used_at', { ascending: false })
-      .limit(10);
-
-    if (recentsData) {
-      setRecentFoods(recentsData as RecentFood[]);
-    }
-
-    // 4. Fetch today's exercises
-    const { data: exercisesData } = await supabase
-      .from('exercises')
-      .select('*')
-      .eq('user_id', uid)
-      .eq('exercise_date', dateStr);
-
-    if (exercisesData) {
-      setTodaysExercises(exercisesData as ExerciseEntry[]);
-    } else {
-      setTodaysExercises([]);
-    }
-
-    // 5. Fetch today's weight
-    const { data: weightData } = await supabase
-      .from('weight_logs')
-      .select('*')
-      .eq('user_id', uid)
-      .gte('recorded_at', `${dateStr}T00:00:00.000Z`)
-      .lt('recorded_at', `${dateStr}T23:59:59.999Z`)
-      .order('recorded_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (weightData) {
-      setTodaysWeight(weightData as WeightLog);
-    } else {
-      setTodaysWeight(null);
-    }
-
-    setIsDashboardLoading(false);
   }, []);
 
   useEffect(() => {
     const init = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
+      try {
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError || !user) {
+          console.warn("Auth check failed or session expired:", authError);
+          await supabase.auth.signOut();
+          setIsDashboardLoading(false);
+          return;
+        }
+
         setUserEmail(user.email || '');
         setUserId(user.id);
 
@@ -198,7 +238,8 @@ export default function HomeScreen() {
           .from('profiles')
           .select('*')
           .eq('id', user.id)
-          .single();
+          .maybeSingle();
+
         const actualName = user.user_metadata?.full_name || '';
           
         if (!profileData) {
@@ -218,7 +259,7 @@ export default function HomeScreen() {
           if (updatedProfile) profileData = updatedProfile;
         }
         
-        setUserName(profileData.full_name || profileData.display_name || user.email?.split('@')[0] || 'User');
+        setUserName(profileData?.full_name || profileData?.display_name || user.email?.split('@')[0] || 'User');
         setProfile(profileData as Profile);
         
         let needsOnboarding = false;
@@ -248,10 +289,43 @@ export default function HomeScreen() {
         }
 
         fetchDashboardData(user.id, selectedDate);
+      } catch (e) {
+        console.error("Init dashboard error:", e);
+        setIsDashboardLoading(false);
       }
     };
     init();
   }, [fetchDashboardData, selectedDate]);
+
+  // Only re-fetch profile/goals when returning from Settings after explicitly saving new goals
+  useFocusEffect(
+    useCallback(() => {
+      const checkPendingRefresh = async () => {
+        try {
+          const shouldRefresh = await AsyncStorage.getItem('should_refresh_home_goals');
+          if (shouldRefresh === 'true') {
+            await AsyncStorage.removeItem('should_refresh_home_goals');
+            if (userId) {
+              const { data: profileData } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', userId)
+                .maybeSingle();
+
+              if (profileData) {
+                setProfile(profileData as Profile);
+                setUserName(profileData.full_name || profileData.display_name || userEmail.split('@')[0] || 'User');
+              }
+              fetchDashboardData(userId, selectedDate);
+            }
+          }
+        } catch (e) {
+          console.error("Focus refresh check error:", e);
+        }
+      };
+      checkPendingRefresh();
+    }, [userId, selectedDate, userEmail, fetchDashboardData])
+  );
 
   // Sync Health Connect steps to database
   useEffect(() => {
@@ -328,8 +402,10 @@ export default function HomeScreen() {
     if (!userId) return;
     const { data, error } = await supabase
       .from('profiles')
-      .update(profileData)
-      .eq('id', userId)
+      .upsert(
+        { ...profileData, id: userId, updated_at: new Date().toISOString() },
+        { onConflict: 'id' }
+      )
       .select()
       .single();
       
@@ -374,7 +450,10 @@ export default function HomeScreen() {
       const { data, error } = await supabase.functions.invoke('log-exercise', {
         body: { text, weight, idempotency_key: idempotencyKey }
       });
-      if (error) throw error;
+      if (error) {
+        const errorMsg = await extractEdgeFunctionError(error);
+        throw new Error(errorMsg);
+      }
       if (data?.error) {
         const isDaily = data?.is_daily_limit || data.error.includes('daily limit') || data.error.includes('add your own API key');
         if (isDaily) {
@@ -455,7 +534,7 @@ export default function HomeScreen() {
   const handleLogWeight = async (weight: number) => {
     if (!userId) return;
     try {
-      const todayDate = selectedDate || new Date().toISOString().split('T')[0];
+      const todayDate = selectedDate || getLocalDateString();
       const { data, error } = await supabase
         .from('weight_logs')
         .upsert(
@@ -567,18 +646,24 @@ export default function HomeScreen() {
   const handleSaveMeal = async (mealName: string, title: string, foods: FoodItem[], totals: MealTotals) => {
     setIsSaving(true);
     try {
+      const validFoods = foods.filter(f => (f.calories || 0) > 0 && (f.quantity || 0) > 0);
+      const totalCals = totals.calories || validFoods.reduce((s, f) => s + f.calories, 0);
+
+      // If no positive-calorie foods remain
+      if (validFoods.length === 0 || totalCals <= 0) {
+        if (editingEntry) {
+          await handleDeleteEntry(editingEntry);
+        }
+        setReviewVisible(false);
+        setEstimate(null);
+        setEditingEntry(null);
+        return;
+      }
+
       const clientMealId = editingEntry ? editingEntry.id : Crypto.randomUUID();
 
       if (editingEntry) {
-        // Edit mode: if no foods remain, just delete the entry
-        if (foods.length === 0) {
-          await handleDeleteEntry(editingEntry);
-          setReviewVisible(false);
-          setEstimate(null);
-          setEditingEntry(null);
-          return;
-        }
-        // Otherwise: delete old entry + re-insert via log-meal
+        // Edit mode: delete old entry + re-insert via log-meal
         const { error: delError } = await supabase.rpc('delete_meal_entry', {
           p_meal_id: editingEntry.id,
         });
@@ -596,7 +681,10 @@ export default function HomeScreen() {
         }
       });
 
-      if (error) throw error;
+      if (error) {
+        const errorMsg = await extractEdgeFunctionError(error);
+        throw new Error(errorMsg);
+      }
       if (data?.error) throw new Error(data.error);
 
       setReviewVisible(false);
@@ -704,15 +792,16 @@ export default function HomeScreen() {
     try {
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayStr = yesterday.toISOString().split('T')[0];
+      const yesterdayStr = getLocalDateString(yesterday);
+      const { startIso: yStart, endIso: yEnd } = getLocalDayBoundsIso(yesterdayStr);
 
       const { data: yesterdayEntries } = await supabase
         .from('meal_entries')
         .select('*, meal_food(*)')
         .eq('user_id', userId)
         .eq('meal_type', activeMealType)
-        .gte('created_at', `${yesterdayStr}T00:00:00.000Z`)
-        .lt('created_at', `${new Date().toISOString().split('T')[0]}T00:00:00.000Z`);
+        .gte('created_at', yStart)
+        .lte('created_at', yEnd);
 
       if (!yesterdayEntries || yesterdayEntries.length === 0) {
         showAlert('No meals found', `You didn't log any ${activeMealType} yesterday.`);
@@ -838,6 +927,30 @@ export default function HomeScreen() {
   const targetCals = profile?.target_calories ? profile.target_calories + activityCredit : undefined;
   const targetCarbs = profile?.target_carbs ? profile.target_carbs + (activityCredit / 4) : undefined;
 
+  // Alert user when activity bonus is earned on the home page (only once per date)
+  useEffect(() => {
+    const checkActivityCreditAlert = async () => {
+      if (activityCredit > 0 && profile?.target_calories && !showWalkthrough && !showOnboarding) {
+        const key = `has_seen_activity_credit_${selectedDate}`;
+        const hasSeen = await AsyncStorage.getItem(key);
+        if (!hasSeen) {
+          await AsyncStorage.setItem(key, 'true');
+          const baseCals = Math.round(profile.target_calories);
+          const credit = Math.round(activityCredit);
+          const newTarget = Math.round(baseCals + activityCredit);
+          const burned = Math.round(totalBurnedCalories);
+          const pct = Math.round(activityCreditFactor * 100);
+
+          showAlert(
+            '⚡ Activity Bonus Added!',
+            `You burned ${burned} kcal through exercise today!\n\nYour target budget increased by +${credit} kcal (${pct}% credit) from ${baseCals} to ${newTarget} kcal to fuel your activity.`
+          );
+        }
+      }
+    };
+    checkActivityCreditAlert();
+  }, [activityCredit, profile?.target_calories, selectedDate, showWalkthrough, showOnboarding, activityCreditFactor, totalBurnedCalories]);
+
   return (
     <SafeAreaView ref={rootRef} style={[styles.container, { backgroundColor: isDark ? '#0F172A' : '#F8FAFC' }]}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
@@ -869,25 +982,27 @@ export default function HomeScreen() {
           <Text style={[styles.dateText, { color: textPrimary }]}>
             {(() => {
               const todayDate = new Date();
-              const todayStr = todayDate.toISOString().split('T')[0];
+              const todayStr = getLocalDateString(todayDate);
               const yesterday = new Date(todayDate);
               yesterday.setDate(yesterday.getDate() - 1);
-              const yesterdayStr = yesterday.toISOString().split('T')[0];
+              const yesterdayStr = getLocalDateString(yesterday);
               const tomorrow = new Date(todayDate);
               tomorrow.setDate(tomorrow.getDate() + 1);
-              const tomorrowStr = tomorrow.toISOString().split('T')[0];
+              const tomorrowStr = getLocalDateString(tomorrow);
               
-              const formattedDate = new Date(selectedDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+              const [y, m, d] = selectedDate.split('-').map(Number);
+              const selectedDateObj = new Date(y, m - 1, d);
+              const formattedDate = selectedDateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
               
               if (selectedDate === todayStr) return `Today, ${formattedDate}`;
               if (selectedDate === yesterdayStr) return `Yesterday, ${formattedDate}`;
               if (selectedDate === tomorrowStr) return `Tomorrow, ${formattedDate}`;
               
-              return new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+              return selectedDateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
             })()}
           </Text>
           <View style={styles.headerIcons}>
-            {hcSupported && selectedDate === new Date().toISOString().split('T')[0] && (
+            {hcSupported && selectedDate === getLocalDateString() && (
               <Pressable
                 style={[styles.dateBadge, isRefreshingHC && { opacity: 0.5 }]}
                 onPress={handleRefreshHC}
@@ -910,6 +1025,9 @@ export default function HomeScreen() {
             carbs={dailySummary.carbs}
             fat={dailySummary.fat}
             targetCalories={targetCals}
+            baseTargetCalories={profile?.target_calories}
+            activityCredit={activityCredit}
+            maintenanceCalories={profile?.maintenance_calories}
             targetProtein={profile?.target_protein}
             targetCarbs={targetCarbs}
             targetFat={profile?.target_fat}

@@ -162,11 +162,21 @@ export function MealReviewModal({
     setOriginalFoods((prev) => prev.filter((_, idx) => idx !== indexToRemove));
   }, []);
 
-  const handleSave = () => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    onSave(mealName, title, currentFoods, totals);
-  };
+  const validFoods = currentFoods.filter(f => (f.calories || 0) > 0 && (f.quantity || 0) > 0);
+  const isZeroMeal = validFoods.length === 0 || totals.calories <= 0;
 
+  const handleSave = () => {
+    if (isZeroMeal) {
+      if (isEditMode) {
+        onSave(mealName, title, [], { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 });
+      } else {
+        onClose();
+      }
+      return;
+    }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    onSave(mealName, title, validFoods, computeTotals(validFoods));
+  };
 
   const cardBg = isDark ? '#1E293B' : '#FFFFFF';
   const textPrimary = isDark ? '#F8FAFC' : '#0F172A';
@@ -327,17 +337,17 @@ export function MealReviewModal({
           <Pressable
             style={({ pressed }) => [
               styles.saveButton,
-              currentFoods.length === 0 && styles.deleteEntryButton,
+              isZeroMeal && styles.deleteEntryButton,
               pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
               isSaving && styles.saveButtonDisabled,
             ]}
-            onPress={currentFoods.length === 0 && !isEditMode ? onClose : handleSave}
+            onPress={isZeroMeal && !isEditMode ? onClose : handleSave}
             disabled={isSaving}
           >
             <Text style={styles.saveButtonText}>
               {isSaving
-                ? (currentFoods.length === 0 && isEditMode ? 'Deleting...' : 'Saving...')
-                : currentFoods.length === 0
+                ? (isZeroMeal && isEditMode ? 'Deleting...' : 'Saving...')
+                : isZeroMeal
                   ? (isEditMode ? 'Delete Meal' : 'Discard Meal')
                   : isEditMode
                     ? 'Update Meal'

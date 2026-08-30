@@ -269,7 +269,7 @@ export function OnboardingModal({ visible, onSave, onSkip, initialStep, initialP
       goal,
       target_weight_kg: targetWeight ? parseFloat(targetWeight) : null,
       activity_level: 'Sedentary',
-      maintenance_calories: forceUnderEatingThreshold || parseFloat(maintenanceCalories) || null,
+      maintenance_calories: parseFloat(maintenanceCalories) || null,
       under_eating_threshold: forceUnderEatingThreshold || parseFloat(underEatingThreshold) || null,
       target_steps: parseInt(targetSteps) || null,
       target_calories: parseFloat(targetCalories) || 2000,
