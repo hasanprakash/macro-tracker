@@ -135,41 +135,25 @@ export default function HomeScreen() {
   const fetchDashboardData = useCallback(async (uid: string, dateStr: string) => {
     setIsDashboardLoading(true);
     try {
-      // 1. Fetch daily summary (using maybeSingle so empty table doesn't throw)
-      const { data: summaryData } = await supabase
-        .from('daily_summaries')
-        .select('*')
-        .eq('user_id', uid)
-        .eq('summary_date', dateStr)
-        .maybeSingle();
-
-      if (summaryData) {
-        setDailySummary({
-          calories: Number(summaryData.total_calories || 0),
-          protein: Number(summaryData.total_protein || 0),
-          carbs: Number(summaryData.total_carbs || 0),
-          fat: Number(summaryData.total_fat || 0),
-        });
-      } else {
-        setDailySummary({ calories: 0, protein: 0, carbs: 0, fat: 0 });
-      }
-
       const { startIso, endIso } = getLocalDayBoundsIso(dateStr);
 
-      // 2. Fetch today's meal entries with foods
+      // 1. Fetch today's meal entries with foods (matching local summary_date or local day bounds)
       const { data: entriesData } = await supabase
         .from('meal_entries')
         .select('*, meal_food(*)')
         .eq('user_id', uid)
-        .gte('created_at', startIso)
-        .lte('created_at', endIso)
+        .or(`summary_date.eq.${dateStr},and(created_at.gte.${startIso},created_at.lte.${endIso})`)
         .order('created_at', { ascending: true });
 
-      if (entriesData) {
-        setTodaysEntries(entriesData as MealEntry[]);
-      } else {
-        setTodaysEntries([]);
-      }
+      const loadedEntries = (entriesData as MealEntry[]) || [];
+      setTodaysEntries(loadedEntries);
+
+      // 2. Derive Daily Summary directly from loaded meal entries (Single Source of Truth)
+      const sumCals = loadedEntries.reduce((s, e) => s + (Number(e.calories) || 0), 0);
+      const sumPro = loadedEntries.reduce((s, e) => s + (Number(e.protein) || 0), 0);
+      const sumCarbs = loadedEntries.reduce((s, e) => s + (Number(e.carbs) || 0), 0);
+      const sumFat = loadedEntries.reduce((s, e) => s + (Number(e.fat) || 0), 0);
+      setDailySummary({ calories: sumCals, protein: sumPro, carbs: sumCarbs, fat: sumFat });
 
       // 3. Fetch recent foods (limit 10)
       const { data: recentsData } = await supabase
@@ -495,6 +479,7 @@ export default function HomeScreen() {
     
     try {
       const clientExerciseId = Crypto.randomUUID();
+      const exerciseDate = selectedDate || getLocalDateString();
       const { data, error } = await supabase
         .from('exercises')
         .insert({
@@ -505,9 +490,10 @@ export default function HomeScreen() {
           description: desc,
           duration_minutes: entryData.duration_minutes,
           steps_count: 0,
-          calories_burned: entryData.calories_burned,
+          calories_burned: Math.round(entryData.calories_burned || 0),
           source: ExerciseSource.MANUAL,
           calculation_method: CalculationMethod.MET,
+          exercise_date: exerciseDate,
         })
         .select()
         .single();
@@ -678,6 +664,7 @@ export default function HomeScreen() {
           title: title,
           foods: foods,
           totals: totals,
+          date: selectedDate,
         }
       });
 
@@ -706,28 +693,40 @@ export default function HomeScreen() {
     }
   };
 
+  const pendingDeletesRef = useRef<Set<string>>(new Set());
+
   const handleDeleteEntry = async (entry: MealEntry) => {
+    // Prevent duplicate triggers for the same entry
+    if (pendingDeletesRef.current.has(entry.id)) return;
+    pendingDeletesRef.current.add(entry.id);
+
+    // Haptic feedback on delete
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
     // 1. Optimistic local state update for snappy UI
-    setTodaysEntries((prev) => prev.filter(e => e.id !== entry.id));
-    setDailySummary((prev) => ({
-      calories: Math.max(0, prev.calories - (entry.calories || 0)),
-      protein: Math.max(0, prev.protein - (entry.protein || 0)),
-      carbs: Math.max(0, prev.carbs - (entry.carbs || 0)),
-      fat: Math.max(0, prev.fat - (entry.fat || 0)),
-    }));
+    setTodaysEntries((prev) => {
+      const next = prev.filter(e => e.id !== entry.id);
+      const sumCals = next.reduce((s, e) => s + (Number(e.calories) || 0), 0);
+      const sumPro = next.reduce((s, e) => s + (Number(e.protein) || 0), 0);
+      const sumCarbs = next.reduce((s, e) => s + (Number(e.carbs) || 0), 0);
+      const sumFat = next.reduce((s, e) => s + (Number(e.fat) || 0), 0);
+      setDailySummary({ calories: sumCals, protein: sumPro, carbs: sumCarbs, fat: sumFat });
+      return next;
+    });
 
     try {
-      // 2. Atomic delete & summary recalculation via Supabase RPC
+      // 2. Atomic delete via Supabase RPC
       const { error } = await supabase.rpc('delete_meal_entry', {
         p_meal_id: entry.id,
       });
 
       if (error) throw error;
-      if (userId) fetchDashboardData(userId, selectedDate);
     } catch (err: any) {
       showAlert('Delete Failed', err.message || 'Could not delete entry.');
-      // Re-fetch to rollback/sync local state if RPC failed
+      // Re-fetch to rollback only on error
       if (userId) fetchDashboardData(userId, selectedDate);
+    } finally {
+      pendingDeletesRef.current.delete(entry.id);
     }
   };
 
@@ -908,12 +907,12 @@ export default function HomeScreen() {
       description: `≈ ${distanceKm.toFixed(1)} km`,
       duration_minutes: 0,
       steps_count: hcSteps,
-      calories_burned: burned,
+      calories_burned: Math.round(burned),
       created_at: new Date().toISOString(),
       source: ExerciseSource.HEALTH_CONNECT,
       calculation_method: calcMethod,
     } as ExerciseEntry;
-  })() : null;
+  })() : todaysExercises.find(e => e.exercise_type === 'Steps') || null;
 
   const displayExercises = [
     ...(hcStepsEntry ? [hcStepsEntry] : []),
@@ -927,18 +926,19 @@ export default function HomeScreen() {
   const targetCals = profile?.target_calories ? profile.target_calories + activityCredit : undefined;
   const targetCarbs = profile?.target_carbs ? profile.target_carbs + (activityCredit / 4) : undefined;
 
-  // Alert user when activity bonus is earned on the home page (only once per date)
+  // Alert user when activity bonus is earned on the home page (only once per date when credit > 0)
   useEffect(() => {
     const checkActivityCreditAlert = async () => {
-      if (activityCredit > 0 && profile?.target_calories && !showWalkthrough && !showOnboarding) {
+      const credit = Math.round(activityCredit);
+      const burned = Math.round(totalBurnedCalories);
+
+      if (credit > 0 && burned > 0 && profile?.target_calories && !showWalkthrough && !showOnboarding) {
         const key = `has_seen_activity_credit_${selectedDate}`;
         const hasSeen = await AsyncStorage.getItem(key);
         if (!hasSeen) {
           await AsyncStorage.setItem(key, 'true');
           const baseCals = Math.round(profile.target_calories);
-          const credit = Math.round(activityCredit);
-          const newTarget = Math.round(baseCals + activityCredit);
-          const burned = Math.round(totalBurnedCalories);
+          const newTarget = Math.round(baseCals + credit);
           const pct = Math.round(activityCreditFactor * 100);
 
           showAlert(

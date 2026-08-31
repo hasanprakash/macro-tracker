@@ -1,170 +1,189 @@
-# Production Architecture & Resilience Guide
+# Production Architecture, Corner Cases & System Design Decisions
 
-This document covers rate limiting policies, corner cases, caching, database indexing, and resilience strategies implemented across Macro Tracker.
-
----
-
-## 1. Rate Limiting Configuration & Limits
-
-### Per-User Limits:
-- **`log-meal`**:
-  - Burst Limit: `10 requests / minute`
-  - Daily Limit: `30 meal logs / day`
-- **`scan-food`**:
-  - Edge Burst Limit: `5 requests / minute`
-  - Edge Daily Limit: `15 requests / day`
-  - AI Gemini Quota: `3 requests / minute`, `6 requests / day` (Free tier; bypassed if user provides their own Gemini API key via BYOK)
-- **`log-exercise`**:
-  - Edge Burst Limit: `5 requests / minute`
-  - Edge Daily Limit: `15 requests / day`
-  - AI Gemini Quota: `3 requests / minute`, `6 requests / day` (Free tier; bypassed via BYOK)
-
-### Global Limits (Sybil / DDoS Protection):
-- **`GLOBAL_LIMIT_PER_MINUTE`**: `100 requests / minute` across all users per edge function.
-- Protects against distributed/sybil attacks where an attacker spins up multiple fake accounts to flood backend infrastructure.
+> **Technical Reference & Interview Guide**:  
+> This document details the technical engineering decisions, distributed system corner cases, concurrency controls, and resilience strategies implemented across Macro Tracker. It is structured as an architectural reference for production design and technical interview discussions at top-tier product companies.
 
 ---
 
-## 2. Request Processing Pipeline & Early Validation
+## 1. Multi-Tier Distributed Rate Limiting & Sybil Attack Defense
 
-### Request Order in Edge Functions:
-1. **Early Request Size Validation**: Rejects any request payload $> 3\text{ MB}$ (`3,145,728 bytes`) with `HTTP 413 Payload Too Large` before Deno allocates memory.
-2. **CORS & Authentication**: Verifies valid JWT token and extracts `user.id` and client `IP`.
-3. **Global & Burst Rate Limiting**: Evaluates Upstash Redis rate limits (`100/min global`, `5/min burst`, `15/day edge`) **before** making any database lookups or AI calls.
-4. **Idempotency Cache Check**: Checks Redis for `idempotent:<fn>:<user_id>:<key>`. If cached, returns estimate immediately in $< 20\text{ ms}$ (`X-Cache: HIT`).
-5. **Database Settings Query**: Checks `user_ai_settings` for custom API keys only *after* passing burst limit.
-6. **AI Quota Check**: Enforces 3/min and 6/day for free users (bypassed if custom API key is present).
-7. **Gemini / DB Execution**: Executes core logic and caches result with 10-minute TTL.
+### Architectural Strategy:
+- **Algorithm**: Sliding Window Counter via Upstash Redis.
+- **Why Sliding Window over Token Bucket/Fixed Window**:
+  Fixed windows suffer from the $2\times$ boundary burst vulnerability (e.g., sending 10 requests at 11:59:59 PM and 10 at 12:00:00 AM, totaling 20 requests in 1 second). Sliding window counter calculates the weighted sum of the current and previous windows, guaranteeing smooth request distribution.
 
----
+### Multi-Tiered Quota Architecture:
+1. **Tier 1: Global Sybil & DDoS Barrier**:
+   - `100 req/min` across all edge functions.
+   - Prevents distributed botnets from exhausting Supabase Edge isolates or exhausting connection pools.
+2. **Tier 2: Per-User Burst Limiter**:
+   - `10 req/min` on `log-meal`, `5 req/min` on `scan-food` / `log-exercise`.
+   - Protects against rapid button spamming and UI race conditions.
+3. **Tier 3: Daily Consumption Cap**:
+   - `30 meals/day`, `15 scans/day`, `10 feedback submissions/day`.
+   - Enforces cost controls on cloud infrastructure.
+4. **Tier 4: Third-Party AI Quota (Free Tier vs. BYOK)**:
+   - Free users: `3 req/min` and `6 req/day` for Gemini 2.5 Flash.
+   - BYOK users: Personal Gemini API key is decrypted and authenticated, bypassing platform AI rate limits while retaining edge function burst protection.
 
-## 3. BYOK (Bring Your Own Key) Configuration
-
-- By default, `byok_enabled` is set to `true` (via Migration `017_default_byok_true.sql`).
-- All new and existing users have the option to enter their personal Gemini API key under **Settings**.
-- When a custom key is saved, AI rate limits are automatically bypassed.
-
----
-
-## 4. Resilience & "Fail-Open" Strategy
-
-- All Upstash Redis rate-limiting operations are wrapped in `try/catch` handlers.
-- If Upstash Redis experiences network timeouts or downtime, the error is logged as a warning (`console.warn`) and the request is **allowed through** ("Fail-Open").
-- This guarantees that third-party Redis latency will never take down core app functionality for legitimate users.
+### Standardized `429 Too Many Requests` Contract:
+- All rate-limited responses return `HTTP 429` with `Retry-After: <seconds>` headers and JSON payload containing `retry_after_seconds` and specific reset times, allowing the client to show deterministic countdown timers.
 
 ---
 
-## 5. Answers to Architecture Questions
+## 2. Distributed Latency Optimization & Cold-Socket Mitigation
 
-### Q: "If we are making a call to DB before checking rate limits, is that a problem?"
-> **Resolved**: Yes, in earlier iterations `user_ai_settings` was queried before rate limiting. We have re-architected all edge functions to perform **request size validation and edge function burst rate limiting first** before touching PostgreSQL. This protects the database connection pool from spam attacks.
+### The Problem (487ms Cold Latency):
+- Sequential HTTP calls from edge functions to Redis (`await global` $\to$ `await burst` $\to$ `await daily`) created a $3 \times \text{RTT}$ waterfall.
+- After idle periods, TCP/TLS connections to serverless Redis timed out, requiring DNS lookup + TCP 3-way handshake + TLS 1.3 negotiation on each request.
+- Per-request instantiation wiped in-memory caches on every invocation.
 
-### Q: "We are making Supabase DB calls directly from React Native. Are they protected from rate limits?"
-> **Answer**: Yes. Supabase's infrastructure layer (Kong API Gateway, PostgREST, and Supavisor connection pooling) provides global DDoS and rate limiting protections. Furthermore:
-> 1. **PostgreSQL RLS (Row-Level Security)** ensures users can only read/write their own records.
-> 2. **PostgreSQL Constraints & Atomic UPSERTs** (e.g. `UNIQUE (user_id, log_date)` on `weight_logs` and `UNIQUE (user_id, external_id)` on `exercises`) prevent duplicate data.
-> 3. **Application Limits** (e.g., max 5 entries per meal type) are checked on both client and database transactions.
-
-### Q: "Should I give the user the exact time when they can retry when hitting rate limits?"
-> **Answer**: Yes! All edge functions return standard `Retry-After` headers and `retry_after_seconds` in the response JSON. The mobile app automatically formats this into friendly human-readable strings (e.g., *"Resets in 3 hours, or add your own API key in Settings for unlimited scans"* with a direct button to navigate to Settings).
-
----
-
-## 6. Redis Latency Optimization & Cold Socket Mitigation
-
-### Why Redis was taking 487ms after idle periods:
-1. **Sequential HTTP Waterfall**: Previously, the function executed 3 separate sequential round-trips over HTTPS: `await globalLimiter` $\to$ `await burstLimiter` $\to$ `await dailyLimiter` ($3 \times \text{RTT}$).
-2. **Cold Socket Reconnects**: After waiting a few minutes, the TCP connection and TLS session to Upstash timed out. The next request had to perform a DNS lookup + TCP 3-way handshake + TLS 1.3 handshake before executing 3 sequential REST calls.
-3. **Per-Request Instantiation**: Instantiating `new Ratelimit(...)` and `new Map()` inside the request handler meant the in-memory `ephemeralCache` was always wiped empty on every request.
-
-### The Fixes Applied:
-1. **Parallel `Promise.all`**: All rate limiters now execute in parallel in a single concurrent network round-trip ($3\times \text{RTT} \to 1\times \text{RTT}$, reducing network latency by up to 66%).
-2. **Module-Scoped Singletons**: Initializing `Redis` and `Ratelimit` instances at module scope keeps TCP keep-alive connections warm across requests in the Deno isolate.
-3. **Persistent Ephemeral Cache**: In-memory `ephemeralCache` maps now persist across requests, allowing repeated rate-limit checks to resolve in **0ms** without touching the network.
+### The Engineering Solution:
+1. **Parallel Execution via `Promise.all`**:
+   - Concurrently evaluates global, burst, and daily limits in a single network round-trip ($3\times \text{RTT} \to 1\times \text{RTT}$), reducing Redis overhead by ~66%.
+2. **Module-Scoped Singletons**:
+   - Instantiating `Redis` and `Ratelimit` instances at Deno module scope preserves HTTP keep-alive connections across warm isolate invocations.
+3. **Persistent Ephemeral In-Memory Cache**:
+   - In-memory `ephemeralCache` (LRU Map) stores recent token counts within the isolate, serving repeated checks in **0ms** without touching the Redis network socket.
 
 ---
 
-## 7. Binary Streaming & Real-Time Upload Progression
+## 3. Idempotency & Network Retries (At-Most-Once Execution)
 
-### Binary `multipart/form-data` vs Base64 JSON:
-- **0% Data Bloat**: Moving to binary `FormData` eliminates Base64's 33% string overhead.
-- **Zero JS Heap Memory Spikes**: The phone streams raw binary bytes directly from device storage without allocating megabyte strings in the Hermes JS runtime.
-- **Deno Multipart Support**: `scan-food` parses both `multipart/form-data` and `application/json` with zero third-party dependencies.
+### Edge Case:
+Under unstable cellular network conditions, a client may send a request, the server executes it, but the TCP connection drops before the HTTP response reaches the client. If the client automatically retries, duplicate meals or AI scans would be billed/logged twice.
 
-### Exact Real-Time Network Callback:
-- The mobile app uses `XMLHttpRequest.upload.onload` via [`invokeScanFoodWithProgress`](file:///c:/SDProjects/macro-tracker/mobile/lib/scan.ts).
-- The exact millisecond the phone finishes sending the binary bytes across the network socket, `isUploaded = true` fires.
-- [`ScanningLoader`](file:///c:/SDProjects/macro-tracker/mobile/components/ScanningLoader.tsx) checks off `✅ Uploaded photo` instantly and moves to `🔍 Identifying foods...`.
-
----
-
-## 8. Calorie Intake Alerts & Thresholds
-
-### 1. Under-Eating Threshold & BMR Override:
-- **Condition**: `calories < under_eating_threshold`
-- **Calculation Rule**:
-  - Default: `under_eating_threshold = calculated_BMR` (e.g. 1369 kcal).
-  - Calculated Maintenance: `maintenance_calories = calculated_BMR * 1.2` (e.g. 1643 kcal).
-  - **Below-BMR Override**: When a user overrides target calories below their BMR (e.g. chooses 1300 kcal), `under_eating_threshold` is set to the user's override (1300 kcal), while `maintenance_calories` remains strictly preserved at the formula calculation (`1369 * 1.2 = 1643 kcal`).
-- **Visuals**:
-  - Calorie Ring: Red (`#EF4444`) when `calories < under_eating_threshold`
-  - Icon: Gentle breathing `information-circle` in Red (`#EF4444`)
-- **Action on Tap**: Shows educational modal explaining exact calories needed to reach the threshold (`under_eating_threshold - calories`) and risks of under-eating.
-
-### 2. Over-Eating Caution (500 kcal – 600 kcal surplus above maintenance):
-- **Condition**: `calories - maintenance_calories >= 500 && surplus <= 600`
-- **Visuals**:
-  - Calorie Ring: Dangerous Electric Purple (`#A855F7`)
-  - Icon: Gentle breathing `information-circle` in Purple (`#A855F7`)
-- **Action on Tap**: Shows "Time to Slow Down!" alert guiding the user to pace intake.
-
-### 3. Over-Eating High Surplus Alert (> 600 kcal surplus above maintenance):
-- **Condition**: `calories - maintenance_calories > 600`
-- **Visuals**:
-  - Calorie Ring: Dangerous Intense Purple (`#9333EA`)
-  - Icon: Gentle breathing `warning` in Purple (`#A855F7`)
-- **Action on Tap**: Shows "High Calorie Surplus Alert!" advising user to halt further intake and reset fresh tomorrow.
+### Technical Implementation:
+1. **Client-Generated UUIDv4 Idempotency Key**:
+   - The mobile client generates a unique `idempotency_key` (UUIDv4) attached to `x-idempotency-key` header or request body.
+2. **Atomic Redis Reservation with TTL**:
+   - The edge function checks `idempotent:<fn>:<user_id>:<key>`.
+   - If present, returns the cached result immediately ($< 20\text{ ms}$, `X-Cache: HIT`) without re-running AI inference or deducting user quota.
+   - If absent, executes the transaction, writes to Redis with a `10-minute TTL` (`SETEX`), and commits to PostgreSQL.
+3. **Database-Level Deduplication**:
+   - PostgreSQL RPC `insert_meal_transaction` accepts `p_client_meal_id`. If `meal_entries` already contains that ID for the user, it skips re-insertion and returns the existing row idempotently.
 
 ---
 
-## 9. Zero-Calorie Meal & Food Prevention
+## 4. Timezone Midnight Boundaries & Zero-State Synchronization
 
-### Multi-Layer Defense:
-1. **Mobile UI Review Modal**:
-   - Items reduced to 0 quantity / 0 calories are excluded from the save payload.
-   - If total calories reaches 0, the Save button switches to "Discard Meal" (in Create mode) or "Delete Meal" (in Edit mode).
-2. **Edge Function (`log-meal`)**:
-   - Validates `validFoods.length > 0` and `total_calories > 0`.
-   - Rejects zero-calorie payloads with `HTTP 400 Bad Request`.
-3. **Database Transaction (`insert_meal_transaction`)**:
-   - Enforces `p_calories > 0`.
-   - Filters out any `0` or negative calorie / quantity items inside `FOR v_food IN SELECT * FROM jsonb_array_elements(p_foods)`.
-   - Never saves 0-calorie food items to `meal_food` or `recent_foods`.
+### The Problem:
+- PostgreSQL and Supabase servers operate in UTC.
+- A user logging meals or walking in IST (`GMT+05:30`) at `12:30 AM` on August 31 local time is still at `7:00 PM` on August 30 in UTC.
+- Defaulting to PostgreSQL `CURRENT_DATE` or `now()::date` attributes actions to *yesterday*, causing newly logged meals/exercises to disappear from today's dashboard upon refresh.
 
----
-
-## 10. Animation & Haptic Feedback Guarding
-
-### State Preservation on Non-Macro Updates:
-- [`DailySummaryCard`](file:///c:/SDProjects/macro-tracker/mobile/components/DailySummaryCard.tsx) and [`CountingNumber`](file:///c:/SDProjects/macro-tracker/mobile/components/DailySummaryCard.tsx#L24) maintain `prevMetricsRef` and `isFirstLoadRef`.
-- **What this prevents**:
-  - Updating weight in `LogWeightModal` or `Settings` updates the user's profile state, but does not alter meal macros.
-  - Previously, prop updates triggered the full 16-step haptic vibration sequence and wiped the progress rings to 0.
-  - Now, if calories, protein, carbs, and fat have not changed, the component skips the entrance animation and suppresses haptic feedback completely.
+### Technical Solution:
+1. **Client-Side Local Day Slicing (`dateUtils.ts`)**:
+   - Local date is computed strictly using the device's local calendar year, month, and day (`YYYY-MM-DD`).
+   - Generates exact ISO 8601 start (`00:00:00.000`) and end (`23:59:59.999`) timestamps in local time.
+2. **Explicit `summary_date` Column**:
+   - `meal_entries`, `exercises`, and `daily_summaries` explicitly store `summary_date date` passed from the client's local context, superseding UTC server defaults.
+3. **Hybrid DB Query with Fallback**:
+   - Dashboard queries match: `or(summary_date.eq.${dateStr}, and(created_at.gte.${startIso}, created_at.lte.${endIso}))`.
+   - Guarantees seamless backward compatibility for historical rows while strictly isolating local days.
 
 ---
 
-## 11. Additional Corner Cases & Best Practices
+## 5. Single Source of Truth vs. Materialized Aggregations (Race Condition Elimination)
 
-### Caching:
-- Successful AI estimates from `scan-food` and `log-exercise` are cached in Redis for 10 minutes (`TTL = 600s`) keyed by `(user_id, idempotency_key)`.
-- Replaying a dropped request serves cached data in $< 20\text{ ms}$ without consuming rate limit quota or incurring Gemini costs.
+### The Problem:
+- `daily_summaries` acts as a materialized aggregate table (CQRS read-model) to speed up analytics queries.
+- If a user deletes multiple meals in rapid succession, firing multiple concurrent asynchronous delete RPCs, network responses can arrive out-of-order.
+- If the client re-queries `daily_summaries` after delete #1 finishes while delete #2 is still in-flight, stale aggregate data (e.g. 156 kcal) overwrites the client state even when the UI meal list is completely empty.
 
-### Database Indexing:
-- `weight_logs`: `UNIQUE (user_id, log_date)` for atomic daily upserts.
-- `exercises`: `UNIQUE (user_id, external_id)` for wearable / Health Connect deduplication.
-- `meal_entries`: Indexed on `(user_id, created_at)` for fast daily summary aggregations.
-- `daily_summaries`: `UNIQUE (user_id, summary_date)` with true-sum recalculation.
+### The Architectural Solution:
+1. **Ground-Truth UI State Derivation**:
+   - The client derives total calories and macros directly from the active array of meal entries loaded on screen:
+     $$\text{Total Eaten} = \sum_{e \in \text{LoadedEntries}} e.\text{calories}$$
+   - When all entries are removed, eaten calories are **guaranteed to be 0**, mathematically preventing phantom/stale summary data.
+2. **Optimistic Local Mutation + In-Flight Mutex**:
+   - `handleDeleteEntry` mutates local state instantly and uses `pendingDeletesRef (Set<string>)` to prevent duplicate click dispatching.
+   - Asynchronous server sync runs in the background; full data refresh is triggered **only** if the server returns an explicit error (Rollback on Failure).
 
-### Circuit Breakers:
-- Gemini API errors (503 High Demand / Overloaded) are caught and transformed into user-friendly messages rather than crashing the mobile app or raw edge function errors.
+---
+
+## 6. Binary Multipart Streaming vs. Base64 Memory Overhead
+
+### The Problem:
+- Encoding 1080p food photos as Base64 strings introduces a **33% data transfer penalty** (a 3MB image becomes 4MB).
+- In React Native (Hermes engine), instantiating large Base64 strings causes sudden heap allocation spikes, triggering GC pauses and frame drops on low-to-mid-tier mobile hardware.
+
+### The Technical Solution:
+1. **Binary `multipart/form-data`**:
+   - Images are uploaded as native binary streams via `FormData`, avoiding Base64 encoding completely.
+2. **Progressive XHR Upload Tracking**:
+   - Uses `XMLHttpRequest.upload.onprogress` and `onload` to track exact socket-level byte progression.
+   - Provides deterministic UI state transitions:
+     $$\text{Upload Progress } (0\% \to 100\%) \implies \text{Edge Ingestion} \implies \text{Gemini Multimodal Inference}$$
+
+---
+
+## 7. Fail-Open Architecture & Graceful Degradation
+
+### System Design Principle:
+> *A non-critical service failure (e.g. caching or rate-limiting) must never cause a complete outage of core application capabilities.*
+
+### Implementation:
+1. **Redis Fail-Open Handler**:
+   - All Redis rate-limiting calls are wrapped in defensive `try/catch` blocks.
+   - If Upstash Redis experiences network partitions, DNS timeouts, or outage, the error is logged as a warning (`console.warn`) and the request is permitted through ("Fail-Open").
+2. **Database Fallback for Health Connect**:
+   - If Google Health Connect permissions are revoked or unavailable, the system transparently falls back to stored database step records without crashing dashboard components.
+
+---
+
+## 8. Multi-Layer Defensive Validation (Client $\to$ Edge $\to$ Database)
+
+```
+[Mobile Client]             [Supabase Edge Function]          [PostgreSQL Database]
+  • Input Masking             • Payload Size Check (<3MB)       • Check Constraints
+  • Char Limits (10-1000)     • Cryptographic JWT Auth          • Foreign Key Cascades
+  • >0 Calorie Filtering      • String Trimming & Bounds        • Transactional RPC
+  • Optimistic Dedupe         • Redis Sliding Window            • Atomic UPSERTs
+```
+
+1. **Client Layer**:
+   - Validates character bounds (Title 3–100, Description 10–1,000) and suppresses save actions on empty/0-calorie meals.
+2. **Edge Function Layer**:
+   - Rejects payloads exceeding 3MB before Deno allocates memory (`Content-Length` inspection).
+   - Validates types against strict schema (`'bug' | 'feedback'`).
+3. **Database Layer (ACID Guarantees)**:
+   - Table-level `CHECK (char_length(title) >= 3 AND char_length(title) <= 100)`.
+   - `insert_meal_transaction` executes atomically: inserts meal header, loops through food items, filters zero/negative quantities, and updates `daily_summaries` inside a single database transaction.
+
+---
+
+## 9. Circuit Breaker Pattern for External Service Outages
+
+### What is a Circuit Breaker?
+A resilience design pattern that wraps remote calls (e.g., to Gemini API or external AI vendors). It monitors failure rates across three distinct states:
+1. **CLOSED**: Requests flow normally. Failures are counted within a sliding time window.
+2. **OPEN**: When the failure rate exceeds the threshold (e.g., $>50\%$ failures over 10 requests, or consecutive 503s), the circuit trips. Subsequent requests fail fast in **$<1\text{ms}$** without waiting for network timeouts.
+3. **HALF-OPEN**: After a cooldown period (e.g., 30s), a single probe request is permitted. If it succeeds, the circuit resets to CLOSED; if it fails, the OPEN timer resets.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Closed
+    Closed --> Open : Failure Threshold Exceeded (>50% errors)
+    Open --> HalfOpen : Cooldown Timer Expires (30s)
+    HalfOpen --> Closed : Probe Request Succeeds
+    HalfOpen --> Open : Probe Request Fails
+```
+
+### Why Circuit Breakers are Essential in High-Volume Systems:
+- **Prevents Cascading Failure**: When Gemini experiences high demand (503 / 429), each un-breakered request hangs for 10–30 seconds waiting for upstream timeouts. Under high concurrency (e.g. 500 req/s), edge worker memory and socket pools exhaust rapidly, taking down the entire API gateway.
+- **Immediate Graceful Fallback**: With an OPEN circuit, the edge function immediately responds with a structured fallback (e.g., *"AI estimation is temporarily experiencing high demand. Please use Quick Add or try again in 30 seconds"*), protecting backend compute resources.
+
+---
+
+## 10. Database Indexing & Concurrency Controls
+
+| Table | Index / Constraint | Engineering Rationale |
+| :--- | :--- | :--- |
+| `meal_entries` | `(user_id, summary_date)` | Speeds up daily dashboard filtering from $O(N)$ sequential scan to $O(\log N)$ index scan. |
+| `meal_entries` | `(user_id, created_at DESC)` | Optimizes chronological meal history queries and timeline pagination. |
+| `daily_summaries` | `UNIQUE (user_id, summary_date)` | Enables atomic `INSERT ... ON CONFLICT DO UPDATE` for lock-free aggregated totals. |
+| `weight_logs` | `UNIQUE (user_id, log_date)` | Guarantees exactly one weight entry per day per user, preventing duplicate plot points. |
+| `exercises` | `UNIQUE (user_id, external_id)` | Prevents duplicate step syncs from Health Connect / wearable devices on multiple app opens. |
+| `feedback_submissions` | `(user_id, created_at DESC)` | Efficient rate-checking and per-user audit trails. |
+| `feedback_submissions` | `(status, type)` | Enables sub-millisecond filtering for administrative triage boards. |

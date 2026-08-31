@@ -9,6 +9,8 @@ import { useAlert } from '@/components/ui/CustomAlert';
 import { OnboardingModal } from '@/components/OnboardingModal';
 import { BYOKModal } from '@/components/BYOKModal';
 import { TipsModal } from '@/components/TipsModal';
+import { FeedbackModal } from '@/components/FeedbackModal';
+import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing, withSequence } from 'react-native-reanimated';
 import type { Profile } from '@/lib/types';
@@ -27,10 +29,14 @@ export default function SettingsScreen() {
   const [onboardingVisible, setOnboardingVisible] = useState(false);
   const [byokVisible, setByokVisible] = useState(false);
   const [tipsVisible, setTipsVisible] = useState(false);
+  const [feedbackVisible, setFeedbackVisible] = useState(false);
   const [hasSeenTips, setHasSeenTips] = useState(true);
   const [aiSettings, setAiSettings] = useState({ byok_enabled: true, has_custom_key: false });
   const [currentProfile, setCurrentProfile] = useState<Profile | null>(null);
   const [onboardingInitialStep, setOnboardingInitialStep] = useState<'intro' | 'review'>('intro');
+
+  const appVersion = Constants.expoConfig?.version || '1.0.0';
+
 
   const pulseAnim = useSharedValue(1);
 
@@ -233,6 +239,28 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: textSecondary }]}>SUPPORT & FEEDBACK</Text>
+          
+          <View style={[styles.card, { backgroundColor: bgSurface, borderColor }]}>
+            <Pressable 
+              style={styles.listItem}
+              onPress={() => setFeedbackVisible(true)}
+            >
+              <View style={styles.listItemLeft}>
+                <View style={[styles.iconContainer, { backgroundColor: 'rgba(245, 158, 11, 0.15)' }]}>
+                  <Ionicons name="chatbox-ellipses-outline" size={20} color="#F59E0B" />
+                </View>
+                <View>
+                  <Text style={[styles.listItemTitle, { color: textPrimary }]}>Report a Bug / Feedback</Text>
+                  <Text style={[styles.listItemSubtitle, { color: textSecondary }]}>Share your ideas or report an issue</Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={textSecondary} />
+            </Pressable>
+          </View>
+        </View>
+
         {aiSettings.byok_enabled && (
           <View style={styles.section}>
             <Text style={[styles.sectionTitle, { color: textSecondary }]}>AI FEATURES</Text>
@@ -258,6 +286,12 @@ export default function SettingsScreen() {
             </View>
           </View>
         )}
+
+        <View style={styles.versionContainer}>
+          <Text style={[styles.versionText, { color: textSecondary }]}>
+            MacroTracker v{appVersion}
+          </Text>
+        </View>
       </ScrollView>
 
       <OnboardingModal
@@ -278,6 +312,11 @@ export default function SettingsScreen() {
       <TipsModal 
         visible={tipsVisible} 
         onClose={() => setTipsVisible(false)} 
+      />
+
+      <FeedbackModal
+        visible={feedbackVisible}
+        onClose={() => setFeedbackVisible(false)}
       />
     </SafeAreaView>
   );
@@ -351,5 +390,14 @@ const styles = StyleSheet.create({
   divider: {
     height: 1,
     marginLeft: 68,
+  },
+  versionContainer: {
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  versionText: {
+    fontSize: 12,
+    fontWeight: '500',
+    letterSpacing: 0.3,
   },
 });

@@ -155,7 +155,7 @@ Deno.serve(async (req) => {
     // ── 4. Validate Payload & Filter Zero-Calorie Items ─────────────
     const tParseStart = performance.now();
     const body = await req.json();
-    const { meal_type, meal_name, title, foods, totals, image_base64, meal_id, idempotency_key } = body;
+    const { meal_type, meal_name, title, foods, totals, image_base64, meal_id, idempotency_key, date } = body;
     const clientMealId = meal_id || idempotency_key || null;
 
     const validFoods = Array.isArray(foods)
@@ -222,7 +222,8 @@ Deno.serve(async (req) => {
       p_ai_response_json: { meal_name, title, foods: validFoods, totals: { calories: totalCals, protein_g: totalProtein, carbs_g: totalCarbs, fat_g: totalFat } },
       p_foods: validFoods,
       p_title: title,
-      p_meal_id: clientMealId
+      p_meal_id: clientMealId,
+      p_summary_date: date || null,
     });
 
     if (rpcError) {
