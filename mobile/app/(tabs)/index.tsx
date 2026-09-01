@@ -112,7 +112,15 @@ export default function HomeScreen() {
   const [editingEntry, setEditingEntry] = useState<MealEntry | null>(null);
 
   const router = useRouter();
-  const { steps: hcSteps, activeCalories: hcActiveCalories, isSupported: hcSupported, error: hcError, fetchSteps } = useHealthConnect(selectedDate);
+  const {
+    steps: hcSteps,
+    activeCalories: hcActiveCalories,
+    isSupported: hcSupported,
+    hasPermission: hcHasPermission,
+    syncedDate: hcSyncedDate,
+    error: hcError,
+    fetchSteps,
+  } = useHealthConnect(selectedDate);
 
   // Refs for spotlight walkthrough
   const rootRef = useRef<View>(null);
@@ -174,8 +182,28 @@ export default function HomeScreen() {
         .eq('user_id', uid)
         .eq('exercise_date', dateStr);
 
+      const isFutureDate = dateStr > getLocalDateString();
       if (exercisesData) {
-        setTodaysExercises(exercisesData as ExerciseEntry[]);
+        if (isFutureDate) {
+          const ghostEntries = (exercisesData as ExerciseEntry[]).filter(
+            e => e.source === ExerciseSource.HEALTH_CONNECT || e.external_id?.startsWith('health_connect_steps_')
+          );
+          if (ghostEntries.length > 0) {
+            supabase
+              .from('exercises')
+              .delete()
+              .eq('user_id', uid)
+              .in('id', ghostEntries.map(e => e.id))
+              .then(() => {});
+          }
+          setTodaysExercises(
+            (exercisesData as ExerciseEntry[]).filter(
+              e => !(e.source === ExerciseSource.HEALTH_CONNECT || e.external_id?.startsWith('health_connect_steps_'))
+            )
+          );
+        } else {
+          setTodaysExercises(exercisesData as ExerciseEntry[]);
+        }
       } else {
         setTodaysExercises([]);
       }
@@ -203,6 +231,7 @@ export default function HomeScreen() {
     }
   }, []);
 
+  // Initial load on mount (Authentication and Profile)
   useEffect(() => {
     const init = async () => {
       try {
@@ -279,7 +308,24 @@ export default function HomeScreen() {
       }
     };
     init();
-  }, [fetchDashboardData, selectedDate]);
+  }, [fetchDashboardData]);
+
+  // Handle date changes without re-authenticating
+  useEffect(() => {
+    if (!userId) return;
+    setIsDashboardLoading(true);
+    const accountCreatedAt = profile?.created_at;
+    if (accountCreatedAt) {
+      const start = new Date(accountCreatedAt);
+      start.setHours(0,0,0,0);
+      const current = new Date(selectedDate);
+      current.setHours(0,0,0,0);
+      const diffTime = current.getTime() - start.getTime();
+      const dayNum = Math.max(1, Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1);
+      setDayNumber(dayNum);
+    }
+    fetchDashboardData(userId, selectedDate);
+  }, [selectedDate, userId, fetchDashboardData]);
 
   // Only re-fetch profile/goals when returning from Settings after explicitly saving new goals
   useFocusEffect(
@@ -314,7 +360,19 @@ export default function HomeScreen() {
   // Sync Health Connect steps to database
   useEffect(() => {
     const syncStepsToDB = async () => {
-      if (!userId || !hcSupported || hcSteps === null || hcSteps <= 0 || !profile) return;
+      const todayStr = getLocalDateString();
+      if (
+        !userId ||
+        !hcSupported ||
+        hcHasPermission === false ||
+        hcSteps === null ||
+        hcSteps <= 0 ||
+        !profile ||
+        hcSyncedDate !== selectedDate ||
+        selectedDate > todayStr
+      ) {
+        return;
+      }
       
       const syncDate = selectedDate;
       const strideCm = profile.stride_length_cm || ((profile.height_cm || 170) * 0.414);
@@ -340,7 +398,7 @@ export default function HomeScreen() {
         description: `≈ ${distanceKm.toFixed(1)} km`,
         duration_minutes: 0,
         steps_count: hcSteps,
-        calories_burned: burned,
+        calories_burned: Math.round(burned),
         source: ExerciseSource.HEALTH_CONNECT,
         calculation_method: calcMethod,
         external_id: externalId,
@@ -365,7 +423,7 @@ export default function HomeScreen() {
     }, 2000);
 
     return () => clearTimeout(timeoutId);
-  }, [hcSteps, hcActiveCalories, userId, profile, selectedDate]);
+  }, [hcSteps, hcActiveCalories, userId, profile, selectedDate, hcSyncedDate, hcHasPermission, hcSupported]);
 
   const handleRefreshHC = () => {
     if (isRefreshingHC) return;
@@ -375,6 +433,32 @@ export default function HomeScreen() {
     setTimeout(() => {
       setIsRefreshingHC(false);
     }, 15000);
+  };
+
+  const handleStepsPress = () => {
+    const todayStr = getLocalDateString();
+    if (selectedDate > todayStr) {
+      showAlert(
+        'Future Date',
+        'Step count and active calorie tracking will become available on this day.'
+      );
+      return;
+    }
+
+    if (!hcSupported) {
+      showAlert(
+        'Health Connect Unavailable',
+        'Health Connect is only available on supported Android devices.'
+      );
+      return;
+    }
+
+    if (hcHasPermission === false) {
+      fetchSteps(true);
+      return;
+    }
+
+    handleRefreshHC();
   };
 
   const handleSignOut = async () => {
@@ -867,8 +951,10 @@ export default function HomeScreen() {
     return 'Good Evening';
   };
 
-  const hcStepsEntry = hcSupported && (hcSteps !== null || hcError) ? (() => {
-    if (hcError || hcSteps === null) {
+  const isFutureDate = selectedDate > getLocalDateString();
+
+  const hcStepsEntry = hcSupported ? (() => {
+    if (hcHasPermission === false) {
       return {
         id: 'health-connect-steps',
         user_id: userId || '',
@@ -882,6 +968,28 @@ export default function HomeScreen() {
         source: ExerciseSource.HEALTH_CONNECT,
         calculation_method: CalculationMethod.HEALTH_PLATFORM,
       } as ExerciseEntry;
+    }
+
+    if (isFutureDate) {
+      return {
+        id: 'health-connect-steps',
+        user_id: userId || '',
+        exercise_date: selectedDate,
+        exercise_type: 'Steps',
+        description: '≈ 0.0 km',
+        duration_minutes: 0,
+        steps_count: 0,
+        calories_burned: 0,
+        created_at: new Date().toISOString(),
+        source: ExerciseSource.HEALTH_CONNECT,
+        calculation_method: CalculationMethod.HEALTH_PLATFORM,
+      } as ExerciseEntry;
+    }
+
+    if (hcSteps === null || hcSyncedDate !== selectedDate) {
+      const cached = todaysExercises.find(e => e.exercise_type === 'Steps' && e.exercise_date === selectedDate);
+      if (cached) return cached;
+      return null;
     }
 
     const strideCm = profile?.stride_length_cm || ((profile?.height_cm || 170) * 0.414);
@@ -912,11 +1020,11 @@ export default function HomeScreen() {
       source: ExerciseSource.HEALTH_CONNECT,
       calculation_method: calcMethod,
     } as ExerciseEntry;
-  })() : todaysExercises.find(e => e.exercise_type === 'Steps') || null;
+  })() : todaysExercises.find(e => e.exercise_type === 'Steps' && e.exercise_date === selectedDate) || null;
 
   const displayExercises = [
     ...(hcStepsEntry ? [hcStepsEntry] : []),
-    ...todaysExercises.filter(e => e.exercise_type !== 'Steps')
+    ...todaysExercises.filter(e => e.exercise_type !== 'Steps' && e.exercise_date === selectedDate)
   ];
 
   const totalBurnedCalories = displayExercises.reduce((sum, e) => sum + (e.calories_burned || 0), 0);
@@ -1020,6 +1128,7 @@ export default function HomeScreen() {
 
         <View ref={dailySummaryRef} collapsable={false}>
           <DailySummaryCard
+            date={selectedDate}
             calories={dailySummary.calories}
             protein={dailySummary.protein}
             carbs={dailySummary.carbs}
@@ -1057,7 +1166,7 @@ export default function HomeScreen() {
             entries={displayExercises}
             onAddPress={() => setAddExerciseVisible(true)}
             onDeleteEntry={handleDeleteExercise}
-            onStepsPress={() => fetchSteps(true)}
+            onStepsPress={handleStepsPress}
           />
         </View>
 
@@ -1131,7 +1240,10 @@ export default function HomeScreen() {
         userId={userId}
         onClose={() => setCalendarVisible(false)}
         onSelectDate={(dateStr) => {
-          setSelectedDate(dateStr);
+          if (dateStr !== selectedDate) {
+            setIsDashboardLoading(true);
+            setSelectedDate(dateStr);
+          }
           setCalendarVisible(false);
         }}
       />

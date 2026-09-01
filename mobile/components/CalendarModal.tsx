@@ -44,7 +44,8 @@ export function CalendarModal({
   // When modal opens or selectedDate changes, reset view to selectedDate
   useEffect(() => {
     if (visible) {
-      setViewDate(new Date(selectedDate));
+      const [y, m, d] = selectedDate.split('-').map(Number);
+      setViewDate(new Date(y, m - 1, d || 1));
     }
   }, [visible, selectedDate]);
 
@@ -88,8 +89,10 @@ export function CalendarModal({
   }, [viewDate.getFullYear(), viewDate.getMonth(), visible, userId]);
 
   const changeMonth = (offset: number) => {
-    const newDate = new Date(viewDate);
-    newDate.setMonth(newDate.getMonth() + offset);
+    const year = viewDate.getFullYear();
+    const month = viewDate.getMonth();
+    // Always anchor to day 1 when shifting months to prevent month skipping on 31-day months (e.g. Aug 31 -> Sep 31 -> Oct 1)
+    const newDate = new Date(year, month + offset, 1);
     setViewDate(newDate);
   };
 

@@ -25,6 +25,7 @@ export interface Profile {
   target_steps: number | null;
   activity_credit_factor?: number | null;
   stride_length_cm?: number | null;
+  created_at?: string;
 }
 
 /** A single food item with nutritional breakdown */

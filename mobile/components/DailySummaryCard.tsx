@@ -21,59 +21,44 @@ import { TextInput } from 'react-native';
 
 function CountingNumber({ value, isLoading, style, prefix = '', suffix = '' }: { value: number; isLoading?: boolean; style: any; prefix?: string; suffix?: string }) {
   const [displayValue, setDisplayValue] = React.useState(value);
-  const isFirstRender = React.useRef(true);
-  const prevValueRef = React.useRef(value);
+  const currentValRef = React.useRef(value);
 
   useEffect(() => {
     if (isLoading) {
       return;
     }
 
-    if (isFirstRender.current) {
-      isFirstRender.current = false;
-      let startTime: number | null = null;
-      const duration = 800;
-      let cancelled = false;
+    const startVal = currentValRef.current;
+    const targetVal = Math.round(value);
 
-      const timer = setTimeout(() => {
-        const step = (timestamp: number) => {
-          if (cancelled) return;
-          if (!startTime) startTime = timestamp;
-          const progress = Math.min((timestamp - startTime) / duration, 1);
-          const eased = 1 - Math.pow(1 - progress, 3);
-          setDisplayValue(Math.round(value * eased));
-          if (progress < 1) requestAnimationFrame(step);
-        };
-        requestAnimationFrame(step);
-      }, 200);
-
-      prevValueRef.current = value;
-      return () => {
-        cancelled = true;
-        clearTimeout(timer);
-      };
-    } else if (prevValueRef.current !== value) {
-      let startTime: number | null = null;
-      const duration = 500;
-      let cancelled = false;
-      const startVal = prevValueRef.current;
-      const targetVal = value;
-
-      const step = (timestamp: number) => {
-        if (cancelled) return;
-        if (!startTime) startTime = timestamp;
-        const progress = Math.min((timestamp - startTime) / duration, 1);
-        const eased = 1 - Math.pow(1 - progress, 3);
-        setDisplayValue(Math.round(startVal + (targetVal - startVal) * eased));
-        if (progress < 1) requestAnimationFrame(step);
-      };
-      requestAnimationFrame(step);
-
-      prevValueRef.current = value;
-      return () => {
-        cancelled = true;
-      };
+    if (startVal === targetVal) {
+      setDisplayValue(targetVal);
+      return;
     }
+
+    let startTime: number | null = null;
+    const duration = 600;
+    let animId: number;
+
+    const step = (timestamp: number) => {
+      if (!startTime) startTime = timestamp;
+      const progress = Math.min((timestamp - startTime) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const current = Math.round(startVal + (targetVal - startVal) * eased);
+      currentValRef.current = current;
+      setDisplayValue(current);
+      if (progress < 1) {
+        animId = requestAnimationFrame(step);
+      } else {
+        currentValRef.current = targetVal;
+        setDisplayValue(targetVal);
+      }
+    };
+    animId = requestAnimationFrame(step);
+
+    return () => {
+      cancelAnimationFrame(animId);
+    };
   }, [value, isLoading]);
 
   if (isLoading) {
@@ -188,6 +173,7 @@ interface DailySummaryProps {
   burnedCalories?: number;
   underEatingThreshold?: number | null;
   isLoading?: boolean;
+  date?: string;
 }
 
 export function DailySummaryCard({ 
@@ -196,7 +182,8 @@ export function DailySummaryCard({
   maintenanceCalories, targetProtein, targetCarbs, targetFat,
   burnedCalories = 0,
   underEatingThreshold,
-  isLoading
+  isLoading,
+  date,
 }: DailySummaryProps) {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
@@ -251,6 +238,7 @@ export function DailySummaryCard({
   const calPercent = getPercent(calories, tCals);
 
   const isFirstLoadRef = React.useRef(true);
+  const prevDateRef = React.useRef(date);
   const prevMetricsRef = React.useRef({ calories: -1, protein: -1, carbs: -1, fat: -1, tCals: -1, tPro: -1, tCarbs: -1, tFat: -1 });
 
   useEffect(() => {
@@ -259,12 +247,16 @@ export function DailySummaryCard({
     }
 
     const prev = prevMetricsRef.current;
+    const isDateChange = date !== undefined && date !== prevDateRef.current;
+    prevDateRef.current = date;
+
     const hasChanged = 
+      isDateChange ||
       prev.calories !== calories ||
       prev.protein !== protein ||
       prev.carbs !== carbs ||
       prev.fat !== fat ||
-      prev.tCals !== tCals ||
+    prev.tCals !== tCals ||
       prev.tPro !== tPro ||
       prev.tCarbs !== tCarbs ||
       prev.tFat !== tFat;
@@ -280,7 +272,7 @@ export function DailySummaryCard({
 
     const timeoutIds: ReturnType<typeof setTimeout>[] = [];
 
-    // Play structured haptic feedback ONLY on true initial dashboard load
+    // Play structured haptic feedback on initial dashboard load
     if (isInitial) {
       const playHaptics = () => {
         for (let i = 0; i < 12; i++) {
@@ -293,9 +285,7 @@ export function DailySummaryCard({
         timeoutIds.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy), 1510));
       };
       playHaptics();
-    }
 
-    if (isInitial) {
       // Ring progress — animate after card appears
       ringProgress.value = 0;
       ringProgress.value = withDelay(200, withTiming(calPercent, { duration: 800, easing: Easing.out(Easing.cubic) }));
@@ -322,32 +312,32 @@ export function DailySummaryCard({
       fatOpacity.value = withDelay(barDelay + barStagger * 2, withTiming(1, { duration: 300 }));
       fatBarWidth.value = withDelay(barDelay + barStagger * 2, withTiming(getPercent(fat, tFat), { duration: barDuration, easing: barEasing }));
     } else {
-      // Smooth animated transition for updates + rich multi-step haptic sequence
+      // Smooth animated transition for updates & date transitions + rich multi-step rotary haptic sequence
       const playUpdateHaptics = () => {
-        // Rotary ticking as numbers roll and ring expands
+        // Rotary ticking as numbers roll and ring expands / shrinks
         for (let i = 0; i < 7; i++) {
-          const delay = Math.round(450 * Math.pow(i / 6, 1.4));
+          const delay = Math.round(500 * Math.pow(i / 6, 1.4));
           timeoutIds.push(setTimeout(() => Haptics.selectionAsync(), delay));
         }
         // Satisfying medium + heavy completion settle as macros lock in
-        timeoutIds.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium), 500));
-        timeoutIds.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy), 620));
+        timeoutIds.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium), 550));
+        timeoutIds.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy), 680));
       };
       playUpdateHaptics();
 
-      ringProgress.value = withTiming(calPercent, { duration: 500, easing: Easing.out(Easing.cubic) });
+      ringProgress.value = withTiming(calPercent, { duration: 600, easing: Easing.out(Easing.cubic) });
       proteinOpacity.value = 1;
       carbsOpacity.value = 1;
       fatOpacity.value = 1;
-      proteinBarWidth.value = withTiming(getPercent(protein, tPro), { duration: 500, easing: Easing.out(Easing.cubic) });
-      carbsBarWidth.value = withTiming(getPercent(carbs, tCarbs), { duration: 500, easing: Easing.out(Easing.cubic) });
-      fatBarWidth.value = withTiming(getPercent(fat, tFat), { duration: 500, easing: Easing.out(Easing.cubic) });
+      proteinBarWidth.value = withTiming(getPercent(protein, tPro), { duration: 600, easing: Easing.out(Easing.cubic) });
+      carbsBarWidth.value = withTiming(getPercent(carbs, tCarbs), { duration: 600, easing: Easing.out(Easing.cubic) });
+      fatBarWidth.value = withTiming(getPercent(fat, tFat), { duration: 600, easing: Easing.out(Easing.cubic) });
     }
 
     return () => {
       timeoutIds.forEach(clearTimeout);
     };
-  }, [calories, protein, carbs, fat, calPercent, tPro, tCarbs, tFat, isLoading]);
+  }, [calories, protein, carbs, fat, calPercent, tPro, tCarbs, tFat, isLoading, date]);
 
   const [animatedRingPercent, setAnimatedRingPercent] = React.useState(0);
   const ringInitialRef = React.useRef(true);
@@ -383,7 +373,7 @@ export function DailySummaryCard({
     } else if (prevRingPercentRef.current !== calPercent) {
       let cancelled = false;
       let startTime: number | null = null;
-      const duration = 500;
+      const duration = 600;
       const startPercent = prevRingPercentRef.current;
       const targetPercent = calPercent;
 
@@ -401,7 +391,7 @@ export function DailySummaryCard({
       prevRingPercentRef.current = calPercent;
       return () => { cancelled = true; };
     }
-  }, [calPercent, isLoading]);
+  }, [calPercent, isLoading, date]);
 
   const proteinBarStyle = useAnimatedStyle(() => ({
     width: `${proteinBarWidth.value}%` as any,
