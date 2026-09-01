@@ -37,3 +37,9 @@ verify_jwt = true
 import_map = "./functions/submit-feedback/deno.json"
 entrypoint = "./functions/submit-feedback/index.ts"
 
+[functions.privacy-policy]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/privacy-policy/index.ts"
+
+

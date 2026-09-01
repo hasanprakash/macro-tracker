@@ -156,34 +156,58 @@ Under unstable cellular network conditions, a client may send a request, the ser
 ## 9. Circuit Breaker Pattern for External Service Outages
 
 ### What is a Circuit Breaker?
-A resilience design pattern that wraps remote calls (e.g., to Gemini API or external AI vendors). It monitors failure rates across three distinct states:
-1. **CLOSED**: Requests flow normally. Failures are counted within a sliding time window.
-2. **OPEN**: When the failure rate exceeds the threshold (e.g., $>50\%$ failures over 10 requests, or consecutive 503s), the circuit trips. Subsequent requests fail fast in **$<1\text{ms}$** without waiting for network timeouts.
-3. **HALF-OPEN**: After a cooldown period (e.g., 30s), a single probe request is permitted. If it succeeds, the circuit resets to CLOSED; if it fails, the OPEN timer resets.
+A distributed resilience design pattern that wraps remote calls (specifically Google Gemini AI API in `scan-food` and `log-exercise`). It monitors upstream failure rates across three distinct states:
+1. **CLOSED**: Requests flow normally. Upstream errors are tracked consecutively.
+2. **OPEN**: When 3 consecutive upstream outages (`500, 502, 503, 504, 429, fetch timeouts`) occur, the circuit trips **OPEN**. For the next 30 seconds, subsequent requests **fail fast in $<1\text{ ms}$** without calling Google Gemini or holding open worker connections.
+3. **HALF-OPEN (Self-Healing Probe)**: After the 30-second cooldown expires, a single probe request is permitted through:
+   - **Probe Succeeds**: Circuit automatically resets to **CLOSED**, instantly restoring AI analysis for all users without admin intervention.
+   - **Probe Fails**: Circuit immediately trips back to **OPEN** for another 30-second cooldown.
 
 ```mermaid
 stateDiagram-v2
     [*] --> Closed
-    Closed --> Open : Failure Threshold Exceeded (>50% errors)
+    Closed --> Open : 3 Consecutive Outages (5xx / 429 / Timeout)
     Open --> HalfOpen : Cooldown Timer Expires (30s)
-    HalfOpen --> Closed : Probe Request Succeeds
-    HalfOpen --> Open : Probe Request Fails
+    HalfOpen --> Closed : Probe Request Succeeds (Self-Healed)
+    HalfOpen --> Open : Probe Request Fails (Reset 30s Cooldown)
 ```
 
-### Why Circuit Breakers are Essential in High-Volume Systems:
-- **Prevents Cascading Failure**: When Gemini experiences high demand (503 / 429), each un-breakered request hangs for 10–30 seconds waiting for upstream timeouts. Under high concurrency (e.g. 500 req/s), edge worker memory and socket pools exhaust rapidly, taking down the entire API gateway.
-- **Immediate Graceful Fallback**: With an OPEN circuit, the edge function immediately responds with a structured fallback (e.g., *"AI estimation is temporarily experiencing high demand. Please use Quick Add or try again in 30 seconds"*), protecting backend compute resources.
+### Production Implementation Details:
+- **Shared Module**: [`supabase/functions/_shared/circuitBreaker.ts`](file:///c:/SDProjects/macro-tracker/supabase/functions/_shared/circuitBreaker.ts)
+- **Functions Protected**:
+  - `scan-food`: AI food photo identification and multimodal nutrition estimation.
+  - `log-exercise`: Natural language exercise estimation and MET calculation.
+- **Cross-Isolate Redis State Sync**:
+  - Redis key `circuit:<service>:state` (`SETEX` with 35s TTL) coordinates circuit state across all warm and cold edge function instances.
+  - Local in-memory isolate state ensures sub-millisecond check times ($<1\text{ ms}$).
+- **Fail-Fast Response Contract**:
+  - Returns `HTTP 503 Service Unavailable` with `Retry-After: <seconds>`:
+  ```json
+  {
+    "error": "AI estimation is temporarily experiencing high demand. Please use Quick Add or retry in 30s.",
+    "circuit_open": true,
+    "retry_after_seconds": 30
+  }
+  ```
 
 ---
 
 ## 10. Database Indexing & Concurrency Controls
 
-| Table | Index / Constraint | Engineering Rationale |
-| :--- | :--- | :--- |
-| `meal_entries` | `(user_id, summary_date)` | Speeds up daily dashboard filtering from $O(N)$ sequential scan to $O(\log N)$ index scan. |
-| `meal_entries` | `(user_id, created_at DESC)` | Optimizes chronological meal history queries and timeline pagination. |
-| `daily_summaries` | `UNIQUE (user_id, summary_date)` | Enables atomic `INSERT ... ON CONFLICT DO UPDATE` for lock-free aggregated totals. |
-| `weight_logs` | `UNIQUE (user_id, log_date)` | Guarantees exactly one weight entry per day per user, preventing duplicate plot points. |
-| `exercises` | `UNIQUE (user_id, external_id)` | Prevents duplicate step syncs from Health Connect / wearable devices on multiple app opens. |
-| `feedback_submissions` | `(user_id, created_at DESC)` | Efficient rate-checking and per-user audit trails. |
-| `feedback_submissions` | `(status, type)` | Enables sub-millisecond filtering for administrative triage boards. |
+All tables and foreign key relationships are optimized via Migration `021_performance_indices.sql` to eliminate sequential table scans ($O(N) \to O(\log N)$):
+
+| Table | Index / Constraint | Query Accelerated | Engineering Rationale |
+| :--- | :--- | :--- | :--- |
+| `meal_food` | `(meal_id)` | `meal_entries(*, meal_food(*))` | Foreign keys are not auto-indexed in PostgreSQL. Eliminates full table scan on nested relational join. |
+| `meal_food` | `(user_id)` | `meal_food WHERE user_id = ...` | Optimizes user-level food item lookups and RLS policy verification. |
+| `meal_entries` | `(user_id, summary_date, created_at ASC)` | Daily dashboard meal logs | Compound index matching `summary_date` with chronological ordering in a single index scan. |
+| `meal_entries` | `(user_id, created_at ASC)` | Timeline history queries | Optimizes user-level chronological history queries and pagination. |
+| `daily_summaries` | `UNIQUE (user_id, summary_date)` | Daily aggregate retrieval | Enables atomic `INSERT ... ON CONFLICT DO UPDATE` for lock-free aggregate calculation. |
+| `exercises` | `(user_id, exercise_date)` | Daily exercise section | Sub-millisecond lookup for exercises matching `(user_id, exercise_date)`. |
+| `exercises` | `UNIQUE (user_id, external_id)` | Wearable / Health Connect sync | Prevents duplicate step syncs on repeated app launches via atomic upsert conflict handling. |
+| `weight_logs` | `(user_id, recorded_at ASC)` | 30-day analytics charts | Optimizes dynamic date range scans (`recorded_at >= thirtyDaysAgo`) for charting. |
+| `recent_foods` | `(user_id, last_used_at DESC)` | Quick-add suggestions | Directly satisfies `ORDER BY last_used_at DESC LIMIT 10` without in-memory sorting. |
+| `user_ai_settings`| `(user_id)` | Edge function auth checks | Fast-path retrieval of custom Gemini API keys before AI invocation. |
+| `feedback_submissions` | `(user_id, created_at DESC)` | User submission history | Per-user rate audit and chronological history queries. |
+| `feedback_submissions` | `(status, type)` | Admin triage board | Enables sub-millisecond filtering for open bugs vs feedback items. |
+

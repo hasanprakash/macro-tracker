@@ -1,4 +1,4 @@
-package com.health.macrotracker
+package com.nudgeforward.dayfuel
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build

@@ -91,7 +91,7 @@ function RootContent() {
       setSigningIn(true);
 
       const redirectTo = makeRedirectUri({
-        scheme: "macrotracker",
+        scheme: "dayfuel",
         path: "login-callback",
       });
       console.log("--- SUPABASE REDIRECT URL ---");

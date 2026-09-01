@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 import { Redis } from "https://esm.sh/@upstash/redis@1.28.3";
 import { Ratelimit } from "https://esm.sh/@upstash/ratelimit@1.0.1";
+import { CircuitBreaker } from "../_shared/circuitBreaker.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -60,6 +61,14 @@ const aiDayLimiter = redis ? new Ratelimit({
   ephemeralCache: aiDailyCacheMap,
   prefix: "ratelimit:ai:exercise:day"
 }) : null;
+
+const geminiBreaker = new CircuitBreaker({
+  serviceName: 'gemini:log-exercise',
+  failureThreshold: 3,
+  cooldownPeriodSeconds: 30,
+  redis,
+});
+
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -308,24 +317,47 @@ Return ONLY a JSON object with 'title' (string), 'activity_code' (string) and 'd
       throw new Error("Missing GEMINI_API_KEY");
     }
 
-    // ── 9. Call Gemini API ───────────────────────────────────────────
+    // ── 9. Circuit Breaker Check ──────────────────────────────────────
+    const circuitStatus = await geminiBreaker.check();
+    if (!circuitStatus.allowed && circuitStatus.errorResponse) {
+      return new Response(
+        JSON.stringify(circuitStatus.errorResponse),
+        { 
+          status: 503, 
+          headers: { 
+            ...corsHeaders, 
+            "Content-Type": "application/json", 
+            "Retry-After": circuitStatus.errorResponse.retry_after_seconds.toString() 
+          } 
+        }
+      );
+    }
+
+    // ── 10. Call Gemini API ───────────────────────────────────────────
     const tGeminiStart = performance.now();
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${aiModel}:generateContent`;
-    const response = await fetch(geminiUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": apiKey,
-      },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: geminiPrompt }, { text: `User description: ${text}` }] }],
-        generationConfig: {
-          responseMimeType: "application/json",
-          responseSchema: schema,
-          thinkingConfig: { thinkingLevel: "MINIMAL" }
-        }
-      }),
-    });
+
+    let response;
+    try {
+      response = await fetch(geminiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey,
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: geminiPrompt }, { text: `User description: ${text}` }] }],
+          generationConfig: {
+            responseMimeType: "application/json",
+            responseSchema: schema,
+            thinkingConfig: { thinkingLevel: "MINIMAL" }
+          }
+        }),
+      });
+    } catch (fetchErr: any) {
+      await geminiBreaker.recordFailure(503, fetchErr.message);
+      throw new Error(`AI service connection error: ${fetchErr.message}`);
+    }
 
     if (!response.ok) {
       const errText = await response.text();
@@ -338,19 +370,29 @@ Return ONLY a JSON object with 'title' (string), 'activity_code' (string) and 'd
       } catch (e) {
         niceError = errText;
       }
+      await geminiBreaker.recordFailure(response.status, niceError);
       throw new Error(niceError);
     }
 
     const geminiData = await response.json();
     const geminiText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
 
+    if (!geminiText) {
+      await geminiBreaker.recordFailure(502, "Empty candidates response");
+      throw new Error("Failed to parse Gemini response text");
+    }
+
     let parsedResponse;
     try {
       parsedResponse = JSON.parse(geminiText);
     } catch (_e) {
+      await geminiBreaker.recordFailure(502, "Invalid JSON in response");
       throw new Error("Gemini response was not valid JSON");
     }
     tGemini = Math.round(performance.now() - tGeminiStart);
+
+    // Call succeeded -> reset circuit breaker
+    await geminiBreaker.recordSuccess();
 
     const matchedActivity = activities.find(a => a.code === parsedResponse.activity_code) || activities[0];
     const duration = parsedResponse.duration_minutes || 0;

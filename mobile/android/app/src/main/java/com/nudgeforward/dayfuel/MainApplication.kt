@@ -1,4 +1,4 @@
-package com.health.macrotracker
+package com.nudgeforward.dayfuel
 
 import android.app.Application
 import android.content.res.Configuration

@@ -34,7 +34,7 @@ export function useAuth() {
 
   const signInWithGoogle = async () => {
     const redirectTo = makeRedirectUri({
-      scheme: 'macrotracker',
+      scheme: 'dayfuel',
       path: 'login-callback',
     });
 

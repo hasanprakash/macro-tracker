@@ -289,7 +289,7 @@ export default function SettingsScreen() {
 
         <View style={styles.versionContainer}>
           <Text style={[styles.versionText, { color: textSecondary }]}>
-            MacroTracker v{appVersion}
+            Day Fuel v{appVersion}
           </Text>
         </View>
       </ScrollView>
