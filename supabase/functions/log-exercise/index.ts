@@ -10,7 +10,6 @@ const corsHeaders = {
 };
 
 // ── Module-Scoped Singleton Clients & Persistent Ephemeral Caches ─────
-// Keeping these outside Deno.serve reuses TCP connections and enables 0ms in-memory cache hits
 const redisUrl = Deno.env.get('UPSTASH_REDIS_REST_URL');
 const redisToken = Deno.env.get('UPSTASH_REDIS_REST_TOKEN');
 const redis = (redisUrl && redisToken) ? new Redis({ url: redisUrl, token: redisToken }) : null;
@@ -24,8 +23,8 @@ const aiDailyCacheMap = new Map();
 const globalLimit = parseInt(Deno.env.get('GLOBAL_LIMIT_PER_MINUTE') || '100', 10);
 const edgeBurstLimit = parseInt(Deno.env.get('EDGE_LIMIT_PER_MINUTE') || '5', 10);
 const edgeDailyLimit = parseInt(Deno.env.get('EDGE_LIMIT_PER_DAY') || '15', 10);
-const aiLimitMinute = parseInt(Deno.env.get('AI_LIMIT_PER_MINUTE') || '3', 10);
-const aiLimitDay = parseInt(Deno.env.get('AI_LIMIT_PER_DAY') || '6', 10);
+const aiLimitMinute = parseInt(Deno.env.get('AI_LIMIT_PER_MINUTE') || '5', 10);
+const aiLimitDay = parseInt(Deno.env.get('AI_LIMIT_PER_DAY') || '20', 10);
 
 const globalLimiter = redis ? new Ratelimit({
   redis,
@@ -63,12 +62,49 @@ const aiDayLimiter = redis ? new Ratelimit({
 }) : null;
 
 const geminiBreaker = new CircuitBreaker({
-  serviceName: 'gemini:log-exercise',
+  serviceName: 'gemini:log-exercise-embed',
   failureThreshold: 3,
   cooldownPeriodSeconds: 30,
   redis,
 });
 
+function parseDurationAndIntensity(text: string): { durationMinutes: number | null; detectedIntensity: 'light' | 'moderate' | 'vigorous' | null } {
+  let durationMinutes: number | null = null;
+  const lowerText = text.toLowerCase();
+
+  // Check for phrases like "an hour", "half an hour", "a half hour"
+  if (lowerText.match(/\b(half an hour|a half hour)\b/)) {
+    durationMinutes = 30;
+  } else if (lowerText.match(/\b(an hour|one hour)\b/)) {
+    durationMinutes = 60;
+  } else {
+    // Check for hours + minutes: "1 hr 20 min", "1.5 hours", "2h 30m"
+    const hourMinMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:hours?|hrs?|h\b)\s*(?:and\s*)?(\d+)?\s*(?:mins?|minutes?|m\b)?/i);
+    if (hourMinMatch) {
+      const hours = parseFloat(hourMinMatch[1]) || 0;
+      const mins = hourMinMatch[2] ? parseFloat(hourMinMatch[2]) : 0;
+      durationMinutes = Math.round(hours * 60 + mins);
+    } else {
+      // Check for minutes only: "45 mins", "30 minutes", "20m"
+      const minMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:minutes?|mins?|min\b|m\b)/i);
+      if (minMatch) {
+        durationMinutes = Math.round(parseFloat(minMatch[1]));
+      }
+    }
+  }
+
+  // Detect intensity keyword hints
+  let detectedIntensity: 'light' | 'moderate' | 'vigorous' | null = null;
+  if (lowerText.match(/\b(brisk|fast|hard|intense|vigorous|heavy|sprint|max|racing)\b/)) {
+    detectedIntensity = 'vigorous';
+  } else if (lowerText.match(/\b(slow|light|easy|casual|gentle|stroll|relaxed)\b/)) {
+    detectedIntensity = 'light';
+  } else if (lowerText.match(/\b(moderate|steady|normal|medium)\b/)) {
+    detectedIntensity = 'moderate';
+  }
+
+  return { durationMinutes, detectedIntensity };
+}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -80,8 +116,8 @@ Deno.serve(async (req) => {
   let tParse = 0;
   let tCache = 0;
   let tRateLimit = 0;
+  let tEmbed = 0;
   let tDb = 0;
-  let tGemini = 0;
 
   try {
     // ── 1. Early Request Size Check (Max 3MB) ────────────────────────
@@ -89,7 +125,7 @@ Deno.serve(async (req) => {
     const maxSizeBytes = parseInt(Deno.env.get("MAX_REQUEST_SIZE_BYTES") || "3145728", 10);
     if (contentLength && parseInt(contentLength, 10) > maxSizeBytes) {
       return new Response(
-        JSON.stringify({ error: "Request payload is too large (maximum 3MB). Please reduce input size." }),
+        JSON.stringify({ error: "Request payload is too large (maximum 3MB)." }),
         { status: 413, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -122,15 +158,22 @@ Deno.serve(async (req) => {
     }
     tAuth = Math.round(performance.now() - tAuthStart);
 
-    // ── 3. Parse & Validate Input Early ───────────────────────────────
+    // ── 3. Parse & Validate Input ─────────────────────────────────────
     const tParseStart = performance.now();
     const body = await req.json();
     const { text, weight = 70, idempotency_key } = body;
     const idempotencyId = req.headers.get('x-idempotency-key') || idempotency_key || null;
 
-    if (!text) {
+    if (!text || typeof text !== 'string' || !text.trim()) {
       return new Response(
-        JSON.stringify({ error: 'Must provide text' }),
+        JSON.stringify({ error: 'Please describe your workout.' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (text.trim().length > 120) {
+      return new Response(
+        JSON.stringify({ error: 'Workout description is too long (maximum 120 characters).' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -168,14 +211,29 @@ Deno.serve(async (req) => {
     }
     tCache = Math.round(performance.now() - tCacheStart);
 
-    // ── 5. Parallel Global & Edge Function Rate Limiting (Promise.all) ─
+    // ── 5. Fetch User's Custom API Key (if any) ───────────────────────
+    const tDbStart = performance.now();
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+    let customApiKey: string | null = null;
+    const { data: modelData } = await supabaseAdmin
+      .from('user_ai_settings')
+      .select('custom_api_key')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (modelData?.custom_api_key && modelData.custom_api_key.trim()) {
+      customApiKey = modelData.custom_api_key.trim();
+    }
+    tDb = Math.round(performance.now() - tDbStart);
+
+    // ── 6. Parallel Rate Limiting ─────────────────────────────────────
     const tRateLimitStart = performance.now();
-    if (globalLimiter && edgeBurstLimiter && edgeDailyLimiter) {
+    if (globalLimiter && edgeBurstLimiter) {
       try {
-        const [globalRes, burstRes, edgeDailyRes] = await Promise.all([
+        const [globalRes, burstRes] = await Promise.all([
           globalLimiter.limit("global"),
           edgeBurstLimiter.limit(identifier),
-          edgeDailyLimiter.limit(identifier),
         ]);
 
         if (!globalRes.success) {
@@ -191,26 +249,12 @@ Deno.serve(async (req) => {
         }
 
         if (!burstRes.success) {
-          const retryAfter = Math.ceil((burstReset - Date.now()) / 1000);
+          const retryAfter = Math.ceil((burstRes.reset - Date.now()) / 1000);
           return new Response(
             JSON.stringify({ 
-              error: `Too many requests. Please wait ${retryAfter}s before analyzing exercise again.`,
+              error: `Too many requests. Please wait ${retryAfter}s before searching exercises again.`,
               retry_after_seconds: retryAfter,
               rate_limited: true
-            }),
-            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": retryAfter.toString() } }
-          );
-        }
-
-        if (!edgeDailyRes.success) {
-          const retryAfter = Math.ceil((edgeDailyRes.reset - Date.now()) / 1000);
-          const hours = Math.ceil(retryAfter / 3600);
-          return new Response(
-            JSON.stringify({ 
-              error: `Daily exercise scan limit reached. Resets in ${hours} hour${hours > 1 ? 's' : ''}.`,
-              retry_after_seconds: retryAfter,
-              rate_limited: true,
-              is_daily_limit: true
             }),
             { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": retryAfter.toString() } }
           );
@@ -220,38 +264,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ── 6. Fetch User's Assigned AI Model & Custom API Key ───────────
-    const tDbStart = performance.now();
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
-    
-    let aiModel = 'gemini-3.6-flash'; // Safe fallback
-    let customApiKey = null;
-    const { data: modelData } = await supabaseAdmin
-      .from('user_ai_settings')
-      .select('ai_model, custom_api_key')
-      .eq('user_id', user.id)
-      .single();
-      
-    if (modelData?.ai_model) {
-      aiModel = modelData.ai_model;
-    }
-    if (modelData?.custom_api_key) {
-      customApiKey = modelData.custom_api_key;
-    }
-
-    // ── 7. Load Activity Types ────────────────────────────────────────
-    const { data: activities, error: actError } = await supabase
-      .from('activity_types')
-      .select('code, name, met')
-      .eq('is_active', true);
-
-    if (actError || !activities || activities.length === 0) {
-      throw new Error('Failed to load activity types');
-    }
-    tDb = Math.round(performance.now() - tDbStart);
-
-    // ── 8. AI Specific Rate Limiting (Parallel 3/min & 6/day for Free Tier)
+    // ── 7. AI Specific Rate Limiting (For Free Tier Users) ────────────
     if (!customApiKey && aiMinuteLimiter && aiDayLimiter) {
       try {
         const [minuteRes, dayRes] = await Promise.all([
@@ -263,7 +276,7 @@ Deno.serve(async (req) => {
           const retryAfter = Math.ceil((minuteRes.reset - Date.now()) / 1000);
           return new Response(
             JSON.stringify({ 
-              error: `AI analysis limit reached (3 per minute). Please wait ${retryAfter}s before trying again.`,
+              error: `Exercise search limit reached. Please wait ${retryAfter}s before trying again.`,
               retry_after_seconds: retryAfter,
               rate_limited: true
             }),
@@ -276,7 +289,7 @@ Deno.serve(async (req) => {
           const hours = Math.ceil(retryAfter / 3600);
           return new Response(
             JSON.stringify({ 
-              error: `You've reached your free daily limit of 6 exercise scans. Resets in ${hours} hour${hours > 1 ? 's' : ''}, or add your own API key in Settings for unlimited scans.`,
+              error: `You've reached your free daily limit of 20 exercise searches. Resets in ${hours} hour${hours > 1 ? 's' : ''}, or add your own Gemini API key in Settings for unlimited searches.`,
               retry_after_seconds: retryAfter,
               rate_limited: true,
               is_daily_limit: true
@@ -290,34 +303,13 @@ Deno.serve(async (req) => {
     }
     tRateLimit = Math.round(performance.now() - tRateLimitStart);
 
-    const activityList = activities.map(a => `- ${a.name} (Code: ${a.code})`).join('\n');
-
-    const geminiPrompt = `
-Extract the exercise activity code and duration in minutes from the user's description.
-The activity_code MUST be one of the following codes:
-${activityList}
-
-If the user's exercise does not perfectly match, pick the closest one based on the name.
-Also, generate a short, simple, 2-4 word title for the exercise in the 'title' field (e.g., 'Morning Run' or 'Gym Session').
-Return ONLY a JSON object with 'title' (string), 'activity_code' (string) and 'duration_minutes' (number).
-`;
-
-    const schema = {
-      type: "object",
-      properties: {
-        title: { type: "string" },
-        activity_code: { type: "string" },
-        duration_minutes: { type: "number" }
-      },
-      required: ["title", "activity_code", "duration_minutes"]
-    };
-
     const apiKey = customApiKey || Deno.env.get('GEMINI_API_KEY');
     if (!apiKey) {
-      throw new Error("Missing GEMINI_API_KEY");
+      throw new Error("Missing GEMINI_API_KEY configuration");
     }
+    console.log(`log-exercise: user=${user.id} usingKey=${customApiKey ? 'USER_CUSTOM_BYOK' : 'SERVER_DEFAULT'}`);
 
-    // ── 9. Circuit Breaker Check ──────────────────────────────────────
+    // ── 8. Circuit Breaker Check ──────────────────────────────────────
     const circuitStatus = await geminiBreaker.check();
     if (!circuitStatus.allowed && circuitStatus.errorResponse) {
       return new Response(
@@ -333,83 +325,102 @@ Return ONLY a JSON object with 'title' (string), 'activity_code' (string) and 'd
       );
     }
 
-    // ── 10. Call Gemini API ───────────────────────────────────────────
-    const tGeminiStart = performance.now();
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${aiModel}:generateContent`;
+    // ── 9. Parse Duration & Intensity Hints ───────────────────────────
+    const { durationMinutes, detectedIntensity } = parseDurationAndIntensity(text);
 
-    let response;
+    // ── 10. Generate Vector Embedding with gemini-embedding-001 ────────
+    const tEmbedStart = performance.now();
+    const embedUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${apiKey}`;
+
+    let embedResponse;
     try {
-      response = await fetch(geminiUrl, {
+      embedResponse = await fetch(embedUrl, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": apiKey,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: geminiPrompt }, { text: `User description: ${text}` }] }],
-          generationConfig: {
-            responseMimeType: "application/json",
-            responseSchema: schema,
-            thinkingConfig: { thinkingLevel: "MINIMAL" }
-          }
+          content: { parts: [{ text: text.trim() }] },
+          outputDimensionality: 768
         }),
       });
     } catch (fetchErr: any) {
       await geminiBreaker.recordFailure(503, fetchErr.message);
-      throw new Error(`AI service connection error: ${fetchErr.message}`);
+      throw new Error(`AI embedding connection error: ${fetchErr.message}`);
     }
 
-    if (!response.ok) {
-      const errText = await response.text();
-      let niceError = "AI service error";
+    if (!embedResponse.ok) {
+      const errText = await embedResponse.text();
+      let niceError = "AI embedding service error";
       try {
         const parsed = JSON.parse(errText);
         if (parsed.error && parsed.error.message) {
           niceError = parsed.error.message;
         }
-      } catch (e) {
+      } catch (_e) {
         niceError = errText;
       }
-      await geminiBreaker.recordFailure(response.status, niceError);
+      await geminiBreaker.recordFailure(embedResponse.status, niceError);
       throw new Error(niceError);
     }
 
-    const geminiData = await response.json();
-    const geminiText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!geminiText) {
-      await geminiBreaker.recordFailure(502, "Empty candidates response");
-      throw new Error("Failed to parse Gemini response text");
+    const embedData = await embedResponse.json();
+    const embeddingValues = embedData.embedding?.values;
+    if (!embeddingValues || !Array.isArray(embeddingValues)) {
+      await geminiBreaker.recordFailure(502, "Empty embedding values response");
+      throw new Error("Failed to generate vector embedding for workout description");
     }
-
-    let parsedResponse;
-    try {
-      parsedResponse = JSON.parse(geminiText);
-    } catch (_e) {
-      await geminiBreaker.recordFailure(502, "Invalid JSON in response");
-      throw new Error("Gemini response was not valid JSON");
-    }
-    tGemini = Math.round(performance.now() - tGeminiStart);
-
-    // Call succeeded -> reset circuit breaker
+    tEmbed = Math.round(performance.now() - tEmbedStart);
     await geminiBreaker.recordSuccess();
 
-    const matchedActivity = activities.find(a => a.code === parsedResponse.activity_code) || activities[0];
-    const duration = parsedResponse.duration_minutes || 0;
-    const met = matchedActivity.met || 5.0;
-    const caloriesBurned = duration * (((met - 1) * 3.5 * weight) / 200);
+    // ── 11. Query match_activity_groups RPC in Supabase (pgvector) ────
+    const tDbStart = performance.now();
+    const { data: candidates, error: rpcError } = await supabase.rpc('match_activity_groups', {
+      query_embedding: `[${embeddingValues.join(',')}]`,
+      match_threshold: 0.50,
+      match_count: 5
+    });
 
-    const finalResult = {
-      title: parsedResponse.title || matchedActivity.name,
-      exercise_type: matchedActivity.name,
-      activity_code: matchedActivity.code,
-      duration_minutes: duration,
-      calories_burned: caloriesBurned,
-      source: 'gemini',
-      calculation_method: 'met'
-    };
+    if (rpcError) {
+      console.error("RPC match_activity_groups error:", rpcError);
+      throw new Error(`Database vector search failed: ${rpcError.message}`);
+    }
+    tDb = Math.round(performance.now() - tDbStart);
 
-    // ── 10. Cache for Idempotency (10 minute TTL) ─────────────────────
+    // ── 12. Evaluate Confidence & Select Result Format ─────────────────
+    let finalResult;
+    if (!candidates || candidates.length === 0) {
+      finalResult = {
+        status: 'unmatched',
+        candidates: [],
+        duration_minutes: durationMinutes,
+        detected_intensity: detectedIntensity,
+      };
+    } else {
+      const top = candidates[0];
+      const second = candidates[1];
+      
+      // High confidence if similarity >= 0.76 OR (similarity >= 0.68 with distinct gap >= 0.06)
+      const isHighConfidence = top.similarity >= 0.76 || (top.similarity >= 0.68 && (!second || (top.similarity - second.similarity) >= 0.06));
+
+      if (isHighConfidence) {
+        finalResult = {
+          status: 'exact_match',
+          activity: top,
+          candidates: [top],
+          duration_minutes: durationMinutes,
+          detected_intensity: detectedIntensity,
+        };
+      } else {
+        finalResult = {
+          status: 'multiple_candidates',
+          activity: top,
+          candidates: candidates.slice(0, 4),
+          duration_minutes: durationMinutes,
+          detected_intensity: detectedIntensity,
+        };
+      }
+    }
+
+    // ── 13. Idempotency Cache (10 minute TTL) ─────────────────────────
     if (idempotencyId && redis) {
       try {
         await redis.set(
@@ -423,9 +434,9 @@ Return ONLY a JSON object with 'title' (string), 'activity_code' (string) and 'd
     }
 
     const tTotal = Math.round(performance.now() - t0);
-    const serverTiming = `auth;dur=${tAuth}, parse;dur=${tParse}, cache;dur=${tCache}, ratelimit;dur=${tRateLimit}, db;dur=${tDb}, gemini;dur=${tGemini}, total;dur=${tTotal}`;
+    const serverTiming = `auth;dur=${tAuth}, parse;dur=${tParse}, cache;dur=${tCache}, ratelimit;dur=${tRateLimit}, embed;dur=${tEmbed}, db;dur=${tDb}, total;dur=${tTotal}`;
 
-    console.log(`[log-exercise] [TIMING] Total: ${tTotal}ms | Gemini: ${tGemini}ms (${((tGemini/tTotal)*100).toFixed(1)}%) | DB: ${tDb}ms | Redis: ${tRateLimit}ms | Auth: ${tAuth}ms`);
+    console.log(`[log-exercise] [TIMING] Total: ${tTotal}ms | Embed: ${tEmbed}ms | DB: ${tDb}ms | Status: ${finalResult.status}`);
 
     return new Response(
       JSON.stringify({ 
@@ -433,9 +444,9 @@ Return ONLY a JSON object with 'title' (string), 'activity_code' (string) and 'd
         data: finalResult,
         timings: {
           total_ms: tTotal,
-          gemini_ms: tGemini,
+          embed_ms: tEmbed,
           db_ms: tDb,
-          redis_ms: tRateLimit,
+          ratelimit_ms: tRateLimit,
           auth_ms: tAuth,
         }
       }),
@@ -443,7 +454,7 @@ Return ONLY a JSON object with 'title' (string), 'activity_code' (string) and 'd
         status: 200, 
         headers: { 
           ...corsHeaders, 
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json', 
           'Server-Timing': serverTiming,
         } 
       }
@@ -453,7 +464,7 @@ Return ONLY a JSON object with 'title' (string), 'activity_code' (string) and 'd
 
     let friendlyMessage = error.message || "An unexpected error occurred.";
     if (friendlyMessage.includes('high demand') || friendlyMessage.includes('503') || friendlyMessage.includes('overloaded')) {
-      friendlyMessage = "Our AI is currently experiencing high demand. Please try again in a moment.";
+      friendlyMessage = "Our AI service is currently busy. Please try again in a moment.";
     }
 
     return new Response(

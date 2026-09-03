@@ -21,7 +21,7 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "com.nudgeforward.dayfuel",
-      "versionCode": 3,
+      "versionCode": 4,
       "permissions": [
         "android.permission.health.READ_STEPS",
         "android.permission.health.READ_ACTIVE_CALORIES_BURNED"

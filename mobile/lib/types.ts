@@ -115,6 +115,7 @@ export interface ExerciseEntry {
   steps_count?: number;
   calories_burned: number;
   title?: string | null;
+  activity_code?: string | null;
   created_at: string;
   source?: ExerciseSource | string | null;
   calculation_method?: CalculationMethod | string | null;
@@ -130,4 +131,42 @@ export interface WeightLog {
   muscle_mass?: number | null;
   recorded_at: string;
   log_date?: string;
+}
+
+/** Tier 1 Activity Group (Base concept embedded with vector) */
+export interface ActivityGroup {
+  code: string;
+  name: string;
+  category: string;
+  default_met: number;
+  search_keywords?: string[];
+  variant_count?: number;
+}
+
+/** Tier 2 Activity Variant from Compendium (pacing, intensity, MET) */
+export interface ActivityVariant {
+  code: string;
+  group_code: string;
+  name: string;
+  met: number;
+  category: string;
+  intensity_level: 'light' | 'moderate' | 'vigorous';
+}
+
+/** Candidate returned from semantic search */
+export interface ExerciseSemanticCandidate {
+  code: string;
+  name: string;
+  category: string;
+  default_met: number;
+  similarity: number;
+}
+
+/** Response from log-exercise semantic analysis */
+export interface ExerciseSemanticResponse {
+  status: 'exact_match' | 'multiple_candidates' | 'unmatched';
+  activity?: ExerciseSemanticCandidate;
+  candidates?: ExerciseSemanticCandidate[];
+  duration_minutes?: number | null;
+  detected_intensity?: 'light' | 'moderate' | 'vigorous' | null;
 }

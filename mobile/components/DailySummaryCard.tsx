@@ -238,11 +238,27 @@ export function DailySummaryCard({
   const calPercent = getPercent(calories, tCals);
 
   const isFirstLoadRef = React.useRef(true);
+  const isEntranceRunningRef = React.useRef(false);
+  const initialTimeoutsRef = React.useRef<ReturnType<typeof setTimeout>[]>([]);
+  const updateTimeoutsRef = React.useRef<ReturnType<typeof setTimeout>[]>([]);
   const prevDateRef = React.useRef(date);
   const prevMetricsRef = React.useRef({ calories: -1, protein: -1, carbs: -1, fat: -1, tCals: -1, tPro: -1, tCarbs: -1, tFat: -1 });
 
+  // Cleanup timeouts on unmount only
+  useEffect(() => {
+    return () => {
+      initialTimeoutsRef.current.forEach(clearTimeout);
+      updateTimeoutsRef.current.forEach(clearTimeout);
+    };
+  }, []);
+
   useEffect(() => {
     if (isLoading) {
+      return;
+    }
+
+    // Protect startup entrance animation from being cancelled by immediate re-renders
+    if (isEntranceRunningRef.current) {
       return;
     }
 
@@ -256,7 +272,7 @@ export function DailySummaryCard({
       prev.protein !== protein ||
       prev.carbs !== carbs ||
       prev.fat !== fat ||
-    prev.tCals !== tCals ||
+      prev.tCals !== tCals ||
       prev.tPro !== tPro ||
       prev.tCarbs !== tCarbs ||
       prev.tFat !== tFat;
@@ -270,21 +286,30 @@ export function DailySummaryCard({
     const isInitial = isFirstLoadRef.current;
     isFirstLoadRef.current = false;
 
-    const timeoutIds: ReturnType<typeof setTimeout>[] = [];
-
-    // Play structured haptic feedback on initial dashboard load
+    // ── 1. INITIAL STARTUP ENTRANCE ANIMATION ────────────────────────
     if (isInitial) {
-      const playHaptics = () => {
-        for (let i = 0; i < 12; i++) {
-          const timeOffset = 700 * Math.pow(i / 11, 1.5);
-          timeoutIds.push(setTimeout(() => Haptics.selectionAsync(), 200 + timeOffset));
-        }
-        timeoutIds.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium), 1100));
-        timeoutIds.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium), 1250));
-        timeoutIds.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy), 1400));
-        timeoutIds.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy), 1510));
-      };
-      playHaptics();
+      isEntranceRunningRef.current = true;
+      initialTimeoutsRef.current.forEach(clearTimeout);
+      initialTimeoutsRef.current = [];
+
+      // Rotary sweeping ticks for the calorie ring (200ms to 900ms)
+      for (let i = 0; i < 12; i++) {
+        const timeOffset = 700 * Math.pow(i / 11, 1.5);
+        initialTimeoutsRef.current.push(setTimeout(() => Haptics.selectionAsync(), 200 + timeOffset));
+      }
+
+      // Macro bars hitting with the 3 distinct satisfying haptic hits at the end!
+      // Hit 1: Protein at 1100ms
+      initialTimeoutsRef.current.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium), 1100));
+      // Hit 2: Carbs at 1250ms
+      initialTimeoutsRef.current.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium), 1250));
+      // Hit 3: Fat at 1400ms
+      initialTimeoutsRef.current.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy), 1400));
+
+      // Release lock once entrance sequence completes
+      initialTimeoutsRef.current.push(setTimeout(() => {
+        isEntranceRunningRef.current = false;
+      }, 1600));
 
       // Ring progress — animate after card appears
       ringProgress.value = 0;
@@ -312,16 +337,19 @@ export function DailySummaryCard({
       fatOpacity.value = withDelay(barDelay + barStagger * 2, withTiming(1, { duration: 300 }));
       fatBarWidth.value = withDelay(barDelay + barStagger * 2, withTiming(getPercent(fat, tFat), { duration: barDuration, easing: barEasing }));
     } else {
-      // Smooth animated transition for updates & date transitions + rich multi-step rotary haptic sequence
+      // ── 2. REGULAR UPDATES & DATE TRANSITIONS ───────────────────────
+      updateTimeoutsRef.current.forEach(clearTimeout);
+      updateTimeoutsRef.current = [];
+
       const playUpdateHaptics = () => {
         // Rotary ticking as numbers roll and ring expands / shrinks
         for (let i = 0; i < 7; i++) {
           const delay = Math.round(500 * Math.pow(i / 6, 1.4));
-          timeoutIds.push(setTimeout(() => Haptics.selectionAsync(), delay));
+          updateTimeoutsRef.current.push(setTimeout(() => Haptics.selectionAsync(), delay));
         }
-        // Satisfying medium + heavy completion settle as macros lock in
-        timeoutIds.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium), 550));
-        timeoutIds.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy), 680));
+        // Medium + heavy completion settle as macros lock in
+        updateTimeoutsRef.current.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium), 550));
+        updateTimeoutsRef.current.push(setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy), 680));
       };
       playUpdateHaptics();
 
@@ -333,10 +361,6 @@ export function DailySummaryCard({
       carbsBarWidth.value = withTiming(getPercent(carbs, tCarbs), { duration: 600, easing: Easing.out(Easing.cubic) });
       fatBarWidth.value = withTiming(getPercent(fat, tFat), { duration: 600, easing: Easing.out(Easing.cubic) });
     }
-
-    return () => {
-      timeoutIds.forEach(clearTimeout);
-    };
   }, [calories, protein, carbs, fat, calPercent, tPro, tCarbs, tFat, isLoading, date]);
 
   const [animatedRingPercent, setAnimatedRingPercent] = React.useState(0);
@@ -611,7 +635,9 @@ const styles = StyleSheet.create({
   },
   mainCard: {
     borderRadius: 24,
-    padding: 24,
+    paddingTop: 20,
+    paddingBottom: 18,
+    paddingHorizontal: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.06,
@@ -630,7 +656,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 24,
+    marginBottom: 10,
+    marginTop: 10
   },
   sideStat: {
     flex: 1,

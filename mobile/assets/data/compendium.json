@@ -1,0 +1,2787 @@
+{
+  "version": "2024.3",
+  "groups": [
+    {
+      "code": "bicycling_mountain",
+      "name": "Mountain Biking / BMX",
+      "category": "Bicycling",
+      "default_met": 10.6,
+      "search_keywords": [
+        "mtb",
+        "trail cycling",
+        "mountain bike",
+        "bmx",
+        "offroad bike"
+      ]
+    },
+    {
+      "code": "bicycling_outdoor",
+      "name": "Outdoor Bicycling",
+      "category": "Bicycling",
+      "default_met": 7.2,
+      "search_keywords": [
+        "biking",
+        "cycling",
+        "road bike",
+        "bicycle commute",
+        "bike ride"
+      ]
+    },
+    {
+      "code": "bicycling_stationary",
+      "name": "Stationary Bicycling / Spin",
+      "category": "Bicycling",
+      "default_met": 7.2,
+      "search_keywords": [
+        "spin class",
+        "indoor bike",
+        "exercise bike",
+        "peloton",
+        "watt bike",
+        "stationary cycling"
+      ]
+    },
+    {
+      "code": "bicycling_ebike",
+      "name": "E-Bike Cycling",
+      "category": "Bicycling",
+      "default_met": 5.6,
+      "search_keywords": [
+        "electric bike",
+        "ebike",
+        "e-bicycle"
+      ]
+    },
+    {
+      "code": "aerobics",
+      "name": "Aerobic Exercise / Step",
+      "category": "Conditioning",
+      "default_met": 7.4,
+      "search_keywords": [
+        "aerobics class",
+        "step class",
+        "aerobic dance",
+        "cardio step"
+      ]
+    },
+    {
+      "code": "circuit_training",
+      "name": "Circuit / Bootcamp Training",
+      "category": "Conditioning",
+      "default_met": 4.8,
+      "search_keywords": [
+        "bootcamp",
+        "hiit circuit",
+        "circuit training",
+        "crossfit wod"
+      ]
+    },
+    {
+      "code": "calisthenics",
+      "name": "Calisthenics / Bodyweight",
+      "category": "Conditioning",
+      "default_met": 4.9,
+      "search_keywords": [
+        "pushups",
+        "pullups",
+        "dips",
+        "situps",
+        "bodyweight workout",
+        "air squats",
+        "burpees"
+      ]
+    },
+    {
+      "code": "kettlebell_training",
+      "name": "Kettlebell Workout",
+      "category": "Conditioning",
+      "default_met": 8.7,
+      "search_keywords": [
+        "kettlebells",
+        "kettlebell swings",
+        "kettlebell clean",
+        "snatch"
+      ]
+    },
+    {
+      "code": "general_conditioning",
+      "name": "General Conditioning / Gym",
+      "category": "Conditioning",
+      "default_met": 6.3,
+      "search_keywords": [
+        "workout",
+        "exercise",
+        "gym session",
+        "fitness class"
+      ]
+    },
+    {
+      "code": "elliptical",
+      "name": "Elliptical Trainer",
+      "category": "Conditioning",
+      "default_met": 7,
+      "search_keywords": [
+        "cross trainer",
+        "elliptical workout",
+        "elliptical machine"
+      ]
+    },
+    {
+      "code": "weight_lifting",
+      "name": "Weight / Strength Training",
+      "category": "Conditioning",
+      "default_met": 4.7,
+      "search_keywords": [
+        "gym workout",
+        "lifting weights",
+        "strength training",
+        "bench press",
+        "squat",
+        "deadlift",
+        "dumbbells",
+        "barbell"
+      ]
+    },
+    {
+      "code": "walking_treadmill",
+      "name": "Treadmill Walking",
+      "category": "Walking",
+      "default_met": 4.8,
+      "search_keywords": [
+        "treadmill walk",
+        "incline treadmill",
+        "walking pad"
+      ]
+    },
+    {
+      "code": "jump_rope",
+      "name": "Jump Rope / Skipping",
+      "category": "Conditioning",
+      "default_met": 10,
+      "search_keywords": [
+        "jump rope",
+        "skipping rope",
+        "double unders",
+        "speed rope"
+      ]
+    },
+    {
+      "code": "rowing_machine",
+      "name": "Rowing Machine / Ergometer",
+      "category": "Conditioning",
+      "default_met": 9,
+      "search_keywords": [
+        "rower",
+        "concept2",
+        "indoor rowing",
+        "rowing machine"
+      ]
+    },
+    {
+      "code": "running_outdoor",
+      "name": "Running (Outdoor)",
+      "category": "Running",
+      "default_met": 11.3,
+      "search_keywords": [
+        "run",
+        "running",
+        "road run",
+        "5k",
+        "10k",
+        "marathon",
+        "tempo run"
+      ]
+    },
+    {
+      "code": "stretching",
+      "name": "Stretching / Flexibility",
+      "category": "Conditioning",
+      "default_met": 2.3,
+      "search_keywords": [
+        "stretch",
+        "flexibility",
+        "cool down",
+        "mobility work"
+      ]
+    },
+    {
+      "code": "pilates",
+      "name": "Pilates",
+      "category": "Conditioning",
+      "default_met": 4.4,
+      "search_keywords": [
+        "mat pilates",
+        "reformer",
+        "pilates class",
+        "core pilates"
+      ]
+    },
+    {
+      "code": "yoga",
+      "name": "Yoga",
+      "category": "Conditioning",
+      "default_met": 3.3,
+      "search_keywords": [
+        "vinyasa",
+        "hatha",
+        "power yoga",
+        "hot yoga",
+        "ashtanga",
+        "stretching yoga"
+      ]
+    },
+    {
+      "code": "hiit",
+      "name": "HIIT (High Intensity Interval)",
+      "category": "Conditioning",
+      "default_met": 9,
+      "search_keywords": [
+        "hiit",
+        "tabata",
+        "interval training",
+        "high intensity",
+        "sprint intervals"
+      ]
+    },
+    {
+      "code": "zumba",
+      "name": "Zumba Fitness",
+      "category": "Dancing",
+      "default_met": 6,
+      "search_keywords": [
+        "zumba dance",
+        "zumba class",
+        "dance workout"
+      ]
+    },
+    {
+      "code": "dance_salsa",
+      "name": "Salsa / Latin Dancing",
+      "category": "Dancing",
+      "default_met": 5.4,
+      "search_keywords": [
+        "salsa",
+        "bachata",
+        "merengue",
+        "latin dance"
+      ]
+    },
+    {
+      "code": "dance_ballet",
+      "name": "Ballet Dancing",
+      "category": "Dancing",
+      "default_met": 5.9,
+      "search_keywords": [
+        "ballet",
+        "pointe",
+        "plie",
+        "barre"
+      ]
+    },
+    {
+      "code": "dancing_general",
+      "name": "Dancing (General / Recreational)",
+      "category": "Dancing",
+      "default_met": 6.2,
+      "search_keywords": [
+        "dancing",
+        "dance class",
+        "hip hop dance",
+        "social dancing"
+      ]
+    },
+    {
+      "code": "dance_ballroom",
+      "name": "Ballroom Dancing",
+      "category": "Dancing",
+      "default_met": 7.8,
+      "search_keywords": [
+        "ballroom",
+        "waltz",
+        "tango",
+        "foxtrot",
+        "swing dance"
+      ]
+    },
+    {
+      "code": "general_activity",
+      "name": "General Physical Activity",
+      "category": "General",
+      "default_met": 3.6,
+      "search_keywords": [
+        "activity",
+        "movement",
+        "exercise"
+      ]
+    },
+    {
+      "code": "walking",
+      "name": "Walking",
+      "category": "Walking",
+      "default_met": 4,
+      "search_keywords": [
+        "walk",
+        "stroll",
+        "walking outside",
+        "brisk walk",
+        "casual walk",
+        "power walk"
+      ]
+    },
+    {
+      "code": "kayaking_canoeing",
+      "name": "Kayaking / Canoeing",
+      "category": "Water Activities",
+      "default_met": 6.6,
+      "search_keywords": [
+        "kayak",
+        "canoe",
+        "paddling",
+        "sea kayaking"
+      ]
+    },
+    {
+      "code": "hiking",
+      "name": "Hiking / Backpacking",
+      "category": "Walking",
+      "default_met": 6.6,
+      "search_keywords": [
+        "hike",
+        "trail walk",
+        "nature walk",
+        "backpacking",
+        "trekking"
+      ]
+    },
+    {
+      "code": "household_chores",
+      "name": "Active Household Chores",
+      "category": "Home Activities",
+      "default_met": 3.4,
+      "search_keywords": [
+        "vacuuming",
+        "cleaning house",
+        "chores"
+      ]
+    },
+    {
+      "code": "heavy_cleaning",
+      "name": "Deep Cleaning / Scrubbing Floors",
+      "category": "Home Activities",
+      "default_met": 3.6,
+      "search_keywords": [
+        "scrubbing bathroom",
+        "mopping floor",
+        "deep cleaning house"
+      ]
+    },
+    {
+      "code": "stair_climbing",
+      "name": "Stair Climbing",
+      "category": "Walking",
+      "default_met": 7.2,
+      "search_keywords": [
+        "stairs",
+        "stair climber",
+        "stairmaster",
+        "stepmill",
+        "climbing stairs"
+      ]
+    },
+    {
+      "code": "moving_furniture",
+      "name": "Moving Furniture / Heavy Lifting",
+      "category": "Home Activities",
+      "default_met": 5.8,
+      "search_keywords": [
+        "moving house",
+        "carrying heavy boxes",
+        "moving couch"
+      ]
+    },
+    {
+      "code": "yardwork",
+      "name": "Yardwork & Landscaping",
+      "category": "Lawn & Garden",
+      "default_met": 4.6,
+      "search_keywords": [
+        "yard work",
+        "landscaping",
+        "raking leaves",
+        "brush clearing"
+      ]
+    },
+    {
+      "code": "chopping_wood",
+      "name": "Chopping / Splitting Wood",
+      "category": "Lawn & Garden",
+      "default_met": 5.5,
+      "search_keywords": [
+        "chop wood",
+        "split logs",
+        "axe chopping"
+      ]
+    },
+    {
+      "code": "shoveling_dirt",
+      "name": "Shoveling (Dirt / Mud / Sand)",
+      "category": "Lawn & Garden",
+      "default_met": 5.9,
+      "search_keywords": [
+        "shoveling dirt",
+        "digging shovel"
+      ]
+    },
+    {
+      "code": "gardening",
+      "name": "Gardening & Weeding",
+      "category": "Lawn & Garden",
+      "default_met": 4.1,
+      "search_keywords": [
+        "gardening",
+        "pulling weeds",
+        "planting plants"
+      ]
+    },
+    {
+      "code": "mowing_lawn",
+      "name": "Mowing Lawn",
+      "category": "Lawn & Garden",
+      "default_met": 4.5,
+      "search_keywords": [
+        "mow lawn",
+        "grass cutting",
+        "power mower",
+        "lawn mowing"
+      ]
+    },
+    {
+      "code": "jogging",
+      "name": "Jogging",
+      "category": "Running",
+      "default_met": 7.4,
+      "search_keywords": [
+        "jog",
+        "slow run",
+        "morning jog",
+        "easy run",
+        "light run"
+      ]
+    },
+    {
+      "code": "running_trail",
+      "name": "Trail / Cross Country Running",
+      "category": "Running",
+      "default_met": 12.7,
+      "search_keywords": [
+        "trail run",
+        "cross country",
+        "hill run",
+        "hiking run"
+      ]
+    },
+    {
+      "code": "running_stairs",
+      "name": "Stair Running",
+      "category": "Running",
+      "default_met": 15,
+      "search_keywords": [
+        "running stairs",
+        "stair workout",
+        "bleachers run"
+      ]
+    },
+    {
+      "code": "running_track",
+      "name": "Track Running / Sprinting",
+      "category": "Running",
+      "default_met": 15.8,
+      "search_keywords": [
+        "track workout",
+        "sprints",
+        "interval running",
+        "400m",
+        "lap run"
+      ]
+    },
+    {
+      "code": "running_treadmill",
+      "name": "Treadmill Running",
+      "category": "Running",
+      "default_met": 10.9,
+      "search_keywords": [
+        "treadmill run",
+        "indoor running",
+        "running machine"
+      ]
+    },
+    {
+      "code": "sports_general",
+      "name": "Sports (General)",
+      "category": "Sports",
+      "default_met": 6.3,
+      "search_keywords": [
+        "sports",
+        "playing match",
+        "tournament"
+      ]
+    },
+    {
+      "code": "archery",
+      "name": "Archery",
+      "category": "Sports",
+      "default_met": 4.3,
+      "search_keywords": [
+        "archery",
+        "shooting bow"
+      ]
+    },
+    {
+      "code": "badminton",
+      "name": "Badminton",
+      "category": "Sports",
+      "default_met": 7.2,
+      "search_keywords": [
+        "badminton match",
+        "shuttlecock",
+        "racket sport"
+      ]
+    },
+    {
+      "code": "basketball",
+      "name": "Basketball",
+      "category": "Sports",
+      "default_met": 6.9,
+      "search_keywords": [
+        "basketball game",
+        "shooting hoops",
+        "pick-up basketball"
+      ]
+    },
+    {
+      "code": "bowling",
+      "name": "Bowling",
+      "category": "Sports",
+      "default_met": 3.7,
+      "search_keywords": [
+        "bowling alley",
+        "ten pin bowling"
+      ]
+    },
+    {
+      "code": "boxing",
+      "name": "Boxing / Punching Bag",
+      "category": "Sports",
+      "default_met": 8.8,
+      "search_keywords": [
+        "boxing",
+        "heavy bag",
+        "sparring",
+        "punching bag",
+        "boxing round"
+      ]
+    },
+    {
+      "code": "swimming_general",
+      "name": "Swimming (General / Leisure)",
+      "category": "Water Activities",
+      "default_met": 6.3,
+      "search_keywords": [
+        "swim",
+        "swimming in pool",
+        "treading water",
+        "lake swim",
+        "ocean swim"
+      ]
+    },
+    {
+      "code": "soccer",
+      "name": "Soccer / Football",
+      "category": "Sports",
+      "default_met": 8.1,
+      "search_keywords": [
+        "soccer game",
+        "football match",
+        "futsal",
+        "kicking soccer ball"
+      ]
+    },
+    {
+      "code": "fencing",
+      "name": "Fencing",
+      "category": "Sports",
+      "default_met": 7.9,
+      "search_keywords": [
+        "fencing",
+        "epee",
+        "foil"
+      ]
+    },
+    {
+      "code": "american_football",
+      "name": "American Football / Flag Football",
+      "category": "Sports",
+      "default_met": 5.6,
+      "search_keywords": [
+        "football game",
+        "touch football",
+        "flag football"
+      ]
+    },
+    {
+      "code": "frisbee",
+      "name": "Ultimate Frisbee / Disc Golf",
+      "category": "Sports",
+      "default_met": 5.5,
+      "search_keywords": [
+        "ultimate frisbee",
+        "disc golf",
+        "frisbee"
+      ]
+    },
+    {
+      "code": "golf",
+      "name": "Golf",
+      "category": "Sports",
+      "default_met": 3.8,
+      "search_keywords": [
+        "golfing",
+        "golf course",
+        "driving range",
+        "playing 18 holes"
+      ]
+    },
+    {
+      "code": "gymnastics",
+      "name": "Gymnastics / Trampoline",
+      "category": "Sports",
+      "default_met": 6.5,
+      "search_keywords": [
+        "gymnastics",
+        "tumbling",
+        "trampoline"
+      ]
+    },
+    {
+      "code": "handball",
+      "name": "Handball",
+      "category": "Sports",
+      "default_met": 10,
+      "search_keywords": [
+        "handball match",
+        "team handball"
+      ]
+    },
+    {
+      "code": "hockey",
+      "name": "Hockey (Ice / Field)",
+      "category": "Sports",
+      "default_met": 8.6,
+      "search_keywords": [
+        "ice hockey",
+        "field hockey",
+        "hockey practice"
+      ]
+    },
+    {
+      "code": "horseback_riding",
+      "name": "Horseback Riding",
+      "category": "Sports",
+      "default_met": 6.2,
+      "search_keywords": [
+        "horseback",
+        "riding horse",
+        "equestrian"
+      ]
+    },
+    {
+      "code": "martial_arts",
+      "name": "Martial Arts / Combat Sports",
+      "category": "Sports",
+      "default_met": 9.7,
+      "search_keywords": [
+        "karate",
+        "judo",
+        "jiu jitsu",
+        "bjj",
+        "kickboxing",
+        "taekwondo",
+        "muay thai",
+        "mma"
+      ]
+    },
+    {
+      "code": "squash_racquetball",
+      "name": "Squash / Racquetball",
+      "category": "Sports",
+      "default_met": 9.1,
+      "search_keywords": [
+        "squash",
+        "racquetball",
+        "paddleball"
+      ]
+    },
+    {
+      "code": "race_walking",
+      "name": "Race Walking",
+      "category": "Walking",
+      "default_met": 11.5,
+      "search_keywords": [
+        "speed walking",
+        "power walking",
+        "race walking"
+      ]
+    },
+    {
+      "code": "rock_climbing",
+      "name": "Rock Climbing / Bouldering",
+      "category": "Sports",
+      "default_met": 8.3,
+      "search_keywords": [
+        "climbing",
+        "bouldering",
+        "climbing wall",
+        "indoor climbing"
+      ]
+    },
+    {
+      "code": "rugby",
+      "name": "Rugby",
+      "category": "Sports",
+      "default_met": 7.3,
+      "search_keywords": [
+        "rugby game",
+        "touch rugby"
+      ]
+    },
+    {
+      "code": "skateboarding_skating",
+      "name": "Skateboarding / Rollerblading",
+      "category": "Sports",
+      "default_met": 5.5,
+      "search_keywords": [
+        "skateboarding",
+        "roller blades",
+        "roller skating",
+        "in-line skating"
+      ]
+    },
+    {
+      "code": "winter_sports_general",
+      "name": "Winter Sports (General)",
+      "category": "Winter Activities",
+      "default_met": 11,
+      "search_keywords": [
+        "winter sports",
+        "skiing"
+      ]
+    },
+    {
+      "code": "baseball_softball",
+      "name": "Baseball / Softball",
+      "category": "Sports",
+      "default_met": 4.8,
+      "search_keywords": [
+        "softball game",
+        "baseball",
+        "batting cage"
+      ]
+    },
+    {
+      "code": "tennis",
+      "name": "Tennis",
+      "category": "Sports",
+      "default_met": 6,
+      "search_keywords": [
+        "tennis match",
+        "tennis singles",
+        "tennis doubles",
+        "hitting tennis balls"
+      ]
+    },
+    {
+      "code": "tai_chi",
+      "name": "Tai Chi / Qi Gong",
+      "category": "Sports",
+      "default_met": 3.6,
+      "search_keywords": [
+        "tai chi",
+        "qigong",
+        "yang style"
+      ]
+    },
+    {
+      "code": "volleyball",
+      "name": "Volleyball",
+      "category": "Sports",
+      "default_met": 5.3,
+      "search_keywords": [
+        "volleyball",
+        "beach volleyball",
+        "volleyball game"
+      ]
+    },
+    {
+      "code": "wrestling",
+      "name": "Wrestling",
+      "category": "Sports",
+      "default_met": 6,
+      "search_keywords": [
+        "wrestling",
+        "freestyle wrestling"
+      ]
+    },
+    {
+      "code": "walking_hills",
+      "name": "Hill / Incline Walking",
+      "category": "Walking",
+      "default_met": 8.9,
+      "search_keywords": [
+        "hill walk",
+        "incline walk",
+        "walking uphill",
+        "steep walk"
+      ]
+    },
+    {
+      "code": "walking_dog",
+      "name": "Walking the Dog",
+      "category": "Walking",
+      "default_met": 3,
+      "search_keywords": [
+        "dog walk",
+        "walking puppy",
+        "walk dog"
+      ]
+    },
+    {
+      "code": "walking_nordic",
+      "name": "Nordic Walking",
+      "category": "Walking",
+      "default_met": 7.2,
+      "search_keywords": [
+        "nordic walking",
+        "ski poles walk"
+      ]
+    },
+    {
+      "code": "surfing",
+      "name": "Surfing",
+      "category": "Water Activities",
+      "default_met": 6.8,
+      "search_keywords": [
+        "surf",
+        "surfing waves",
+        "bodyboard"
+      ]
+    },
+    {
+      "code": "scuba_snorkeling",
+      "name": "Scuba Diving / Snorkeling",
+      "category": "Water Activities",
+      "default_met": 7.9,
+      "search_keywords": [
+        "scuba",
+        "snorkeling",
+        "diving in ocean"
+      ]
+    },
+    {
+      "code": "paddleboarding",
+      "name": "Stand-Up Paddleboarding (SUP)",
+      "category": "Water Activities",
+      "default_met": 6.5,
+      "search_keywords": [
+        "paddle board",
+        "sup",
+        "paddleboarding"
+      ]
+    },
+    {
+      "code": "swimming_freestyle",
+      "name": "Swimming (Freestyle / Laps)",
+      "category": "Water Activities",
+      "default_met": 9.1,
+      "search_keywords": [
+        "swim laps",
+        "freestyle swimming",
+        "front crawl",
+        "lap swim"
+      ]
+    },
+    {
+      "code": "swimming_backstroke",
+      "name": "Swimming (Backstroke)",
+      "category": "Water Activities",
+      "default_met": 7.2,
+      "search_keywords": [
+        "backstroke",
+        "swim backstroke"
+      ]
+    },
+    {
+      "code": "swimming_breaststroke",
+      "name": "Swimming (Breaststroke)",
+      "category": "Water Activities",
+      "default_met": 7.8,
+      "search_keywords": [
+        "breaststroke",
+        "swim breaststroke"
+      ]
+    },
+    {
+      "code": "swimming_butterfly",
+      "name": "Swimming (Butterfly)",
+      "category": "Water Activities",
+      "default_met": 13.8,
+      "search_keywords": [
+        "butterfly stroke",
+        "swim butterfly"
+      ]
+    },
+    {
+      "code": "water_polo",
+      "name": "Water Polo",
+      "category": "Water Activities",
+      "default_met": 10,
+      "search_keywords": [
+        "water polo"
+      ]
+    },
+    {
+      "code": "sledding",
+      "name": "Sledding / Tobogganing",
+      "category": "Winter Activities",
+      "default_met": 7.3,
+      "search_keywords": [
+        "sled",
+        "toboggan",
+        "sledding hill"
+      ]
+    },
+    {
+      "code": "ice_skating",
+      "name": "Ice Skating",
+      "category": "Winter Activities",
+      "default_met": 8.9,
+      "search_keywords": [
+        "ice skate",
+        "figure skating",
+        "ice rink"
+      ]
+    },
+    {
+      "code": "skiing_cross_country",
+      "name": "Cross-Country Skiing",
+      "category": "Winter Activities",
+      "default_met": 13.1,
+      "search_keywords": [
+        "nordic ski",
+        "cross country skiing",
+        "xc skiing"
+      ]
+    },
+    {
+      "code": "skiing_downhill",
+      "name": "Downhill / Alpine Skiing",
+      "category": "Winter Activities",
+      "default_met": 9,
+      "search_keywords": [
+        "downhill ski",
+        "alpine ski",
+        "ski slope",
+        "slalom"
+      ]
+    },
+    {
+      "code": "snowboarding",
+      "name": "Snowboarding",
+      "category": "Winter Activities",
+      "default_met": 6.5,
+      "search_keywords": [
+        "snowboard",
+        "snowboarding down mountain"
+      ]
+    },
+    {
+      "code": "snowshoeing",
+      "name": "Snowshoeing",
+      "category": "Winter Activities",
+      "default_met": 7.7,
+      "search_keywords": [
+        "snowshoe",
+        "snow shoe walk"
+      ]
+    },
+    {
+      "code": "snow_shoveling",
+      "name": "Shoveling Snow",
+      "category": "Lawn & Garden",
+      "default_met": 6.4,
+      "search_keywords": [
+        "snow shovel",
+        "shoveling driveway",
+        "clearing snow"
+      ]
+    },
+    {
+      "code": "vr_active_gaming",
+      "name": "VR Fitness & Active Exergaming",
+      "category": "Gaming",
+      "default_met": 5.9,
+      "search_keywords": [
+        "vr workout",
+        "supernatural vr",
+        "beat saber",
+        "wii fit",
+        "exergaming"
+      ]
+    }
+  ],
+  "variants": [
+    {
+      "code": "bicycling_mountain_trail",
+      "group_code": "bicycling_mountain",
+      "name": "Trail Riding (Moderate pace)",
+      "met": 8.5,
+      "category": "Bicycling",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "bicycling_mountain_uphill",
+      "group_code": "bicycling_mountain",
+      "name": "Uphill / Technical Climbing",
+      "met": 14,
+      "category": "Bicycling",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "bicycling_leisure",
+      "group_code": "bicycling_outdoor",
+      "name": "Leisure / Commute (< 10 mph)",
+      "met": 4,
+      "category": "Bicycling",
+      "intensity_level": "light"
+    },
+    {
+      "code": "bicycling_moderate",
+      "group_code": "bicycling_outdoor",
+      "name": "Moderate Pace (12 - 13.9 mph)",
+      "met": 8,
+      "category": "Bicycling",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "bicycling_fast",
+      "group_code": "bicycling_outdoor",
+      "name": "Fast / Vigorous (14 - 15.9 mph)",
+      "met": 10,
+      "category": "Bicycling",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "bicycling_racing",
+      "group_code": "bicycling_outdoor",
+      "name": "Racing / High Speed (> 16 mph)",
+      "met": 13.5,
+      "category": "Bicycling",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "bicycling_stationary_light",
+      "group_code": "bicycling_stationary",
+      "name": "Light Effort (Casual spin, < 60W)",
+      "met": 4.5,
+      "category": "Bicycling",
+      "intensity_level": "light"
+    },
+    {
+      "code": "bicycling_stationary_moderate",
+      "group_code": "bicycling_stationary",
+      "name": "Moderate Effort (Steady pace, 90-125W)",
+      "met": 6.5,
+      "category": "Bicycling",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "bicycling_stationary_vigorous",
+      "group_code": "bicycling_stationary",
+      "name": "Vigorous Effort (High resistance, 150W+)",
+      "met": 9.5,
+      "category": "Bicycling",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "bicycling_stationary_spin",
+      "group_code": "bicycling_stationary",
+      "name": "Spin Bike Class / RPM",
+      "met": 9,
+      "category": "Bicycling",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "bicycling_stationary_hiit",
+      "group_code": "bicycling_stationary",
+      "name": "HIIT Cycle Sprints",
+      "met": 12,
+      "category": "Bicycling",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "bicycling_ebike_high",
+      "group_code": "bicycling_ebike",
+      "name": "High Electric Assist (Light pedaling)",
+      "met": 4,
+      "category": "Bicycling",
+      "intensity_level": "light"
+    },
+    {
+      "code": "bicycling_ebike_low",
+      "group_code": "bicycling_ebike",
+      "name": "Low / Eco Assist (Active pedaling)",
+      "met": 6,
+      "category": "Bicycling",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "aerobics_low_impact",
+      "group_code": "aerobics",
+      "name": "Low Impact Aerobics",
+      "met": 5,
+      "category": "Conditioning",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "aerobics_step",
+      "group_code": "aerobics",
+      "name": "Step Aerobics Class",
+      "met": 7.5,
+      "category": "Conditioning",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "aerobics_high_impact",
+      "group_code": "aerobics",
+      "name": "High Impact Aerobic Dance",
+      "met": 8.5,
+      "category": "Conditioning",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "circuit_training_moderate",
+      "group_code": "circuit_training",
+      "name": "Moderate Circuit (Bodyweight exercises)",
+      "met": 5,
+      "category": "Conditioning",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "circuit_training_vigorous",
+      "group_code": "circuit_training",
+      "name": "Vigorous Bootcamp / Functional Fitness",
+      "met": 7.5,
+      "category": "Conditioning",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "calisthenics_light",
+      "group_code": "calisthenics",
+      "name": "Light Effort (Core crunches, gentle planks)",
+      "met": 2.8,
+      "category": "Conditioning",
+      "intensity_level": "light"
+    },
+    {
+      "code": "calisthenics_moderate",
+      "group_code": "calisthenics",
+      "name": "Moderate Effort (Pushups, lunges, bodyweight squats)",
+      "met": 4,
+      "category": "Conditioning",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "calisthenics_vigorous",
+      "group_code": "calisthenics",
+      "name": "Vigorous Effort (Pull-ups, dips, burpees)",
+      "met": 7.5,
+      "category": "Conditioning",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "kettlebell_moderate",
+      "group_code": "kettlebell_training",
+      "name": "Moderate Kettlebell Workout (Swings & presses)",
+      "met": 7.5,
+      "category": "Conditioning",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "kettlebell_vigorous",
+      "group_code": "kettlebell_training",
+      "name": "High Intensity Kettlebell Circuit",
+      "met": 9.8,
+      "category": "Conditioning",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "general_conditioning_moderate",
+      "group_code": "general_conditioning",
+      "name": "General Conditioning / Gym (Moderate / Recreational)",
+      "met": 5.4,
+      "category": "Conditioning",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "general_conditioning_vigorous",
+      "group_code": "general_conditioning",
+      "name": "General Conditioning / Gym (Vigorous / High Intensity)",
+      "met": 7.6,
+      "category": "Conditioning",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "elliptical_moderate",
+      "group_code": "elliptical",
+      "name": "Moderate Effort (Steady resistance)",
+      "met": 5,
+      "category": "Conditioning",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "elliptical_vigorous",
+      "group_code": "elliptical",
+      "name": "Vigorous Effort (High resistance & incline)",
+      "met": 9,
+      "category": "Conditioning",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "weight_lifting_light",
+      "group_code": "weight_lifting",
+      "name": "Light Effort (Light weights, warmups, 12-15 reps)",
+      "met": 3.5,
+      "category": "Conditioning",
+      "intensity_level": "light"
+    },
+    {
+      "code": "weight_lifting_moderate",
+      "group_code": "weight_lifting",
+      "name": "Moderate Effort (General gym workout, 8-12 reps)",
+      "met": 5,
+      "category": "Conditioning",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "weight_lifting_vigorous",
+      "group_code": "weight_lifting",
+      "name": "Vigorous Effort (Heavy lifting, squats, deadlifts)",
+      "met": 6,
+      "category": "Conditioning",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "weight_lifting_power",
+      "group_code": "weight_lifting",
+      "name": "Powerlifting / Heavy Compound Sets",
+      "met": 7.5,
+      "category": "Conditioning",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "walking_treadmill_light",
+      "group_code": "walking_treadmill",
+      "name": "Light Pace (< 2.5 mph, 0% incline)",
+      "met": 2.8,
+      "category": "Walking",
+      "intensity_level": "light"
+    },
+    {
+      "code": "walking_treadmill_moderate",
+      "group_code": "walking_treadmill",
+      "name": "Moderate Pace (3.0 - 3.4 mph)",
+      "met": 3.8,
+      "category": "Walking",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "walking_treadmill_brisk",
+      "group_code": "walking_treadmill",
+      "name": "Brisk Pace (3.5 - 4.2 mph)",
+      "met": 5,
+      "category": "Walking",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "walking_treadmill_incline",
+      "group_code": "walking_treadmill",
+      "name": "Incline Treadmill Walk (5-12% incline)",
+      "met": 7.5,
+      "category": "Walking",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "jump_rope_slow",
+      "group_code": "jump_rope",
+      "name": "Casual Skipping (< 100 skips/min)",
+      "met": 8.5,
+      "category": "Conditioning",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "jump_rope_moderate",
+      "group_code": "jump_rope",
+      "name": "Moderate Pace (100 - 120 skips/min)",
+      "met": 11.5,
+      "category": "Conditioning",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "jump_rope_fast",
+      "group_code": "jump_rope",
+      "name": "Fast Pace / Double Unders (> 130 skips/min)",
+      "met": 12.5,
+      "category": "Conditioning",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "rowing_light",
+      "group_code": "rowing_machine",
+      "name": "Light Effort (< 100W)",
+      "met": 5,
+      "category": "Conditioning",
+      "intensity_level": "light"
+    },
+    {
+      "code": "rowing_moderate",
+      "group_code": "rowing_machine",
+      "name": "Moderate Effort (100 - 150W)",
+      "met": 7,
+      "category": "Conditioning",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "rowing_vigorous",
+      "group_code": "rowing_machine",
+      "name": "Vigorous Effort (> 150W, fast cadence)",
+      "met": 11,
+      "category": "Conditioning",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "running_light_jog",
+      "group_code": "running_outdoor",
+      "name": "Light Jog (~5.0 mph / 12 min/mile)",
+      "met": 8,
+      "category": "Running",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "running_moderate",
+      "group_code": "running_outdoor",
+      "name": "Steady Run (~6.0 mph / 10 min/mile)",
+      "met": 9.5,
+      "category": "Running",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "running_brisk",
+      "group_code": "running_outdoor",
+      "name": "Brisk Run (~7.5 mph / 8 min/mile)",
+      "met": 11.5,
+      "category": "Running",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "running_fast",
+      "group_code": "running_outdoor",
+      "name": "Fast Pace (~8.5 mph / 7 min/mile)",
+      "met": 12.5,
+      "category": "Running",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "running_sprint",
+      "group_code": "running_outdoor",
+      "name": "Fast Sprints (> 10 mph)",
+      "met": 15,
+      "category": "Running",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "stretching_mild",
+      "group_code": "stretching",
+      "name": "Gentle Stretching / Relaxation",
+      "met": 2.3,
+      "category": "Conditioning",
+      "intensity_level": "light"
+    },
+    {
+      "code": "stretching_active",
+      "group_code": "stretching",
+      "name": "Active Flexibility & Mobility Flow",
+      "met": 3,
+      "category": "Conditioning",
+      "intensity_level": "light"
+    },
+    {
+      "code": "pilates_mat",
+      "group_code": "pilates",
+      "name": "Mat Pilates (Traditional flow)",
+      "met": 2.8,
+      "category": "Conditioning",
+      "intensity_level": "light"
+    },
+    {
+      "code": "pilates_active",
+      "group_code": "pilates",
+      "name": "General Pilates (Core & stability)",
+      "met": 3.8,
+      "category": "Conditioning",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "pilates_reformer",
+      "group_code": "pilates",
+      "name": "Reformer / High Intensity Pilates",
+      "met": 6,
+      "category": "Conditioning",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "yoga_gentle",
+      "group_code": "yoga",
+      "name": "Gentle / Hatha Yoga (Stretching & slow flow)",
+      "met": 2.5,
+      "category": "Conditioning",
+      "intensity_level": "light"
+    },
+    {
+      "code": "yoga_vinyasa",
+      "group_code": "yoga",
+      "name": "Vinyasa / Flow Yoga",
+      "met": 3.5,
+      "category": "Conditioning",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "yoga_power",
+      "group_code": "yoga",
+      "name": "Power Yoga / Ashtanga",
+      "met": 4,
+      "category": "Conditioning",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "yoga_hot",
+      "group_code": "yoga",
+      "name": "Hot / Bikram Yoga",
+      "met": 5.5,
+      "category": "Conditioning",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "hiit_moderate",
+      "group_code": "hiit",
+      "name": "Moderate Interval Training",
+      "met": 7,
+      "category": "Conditioning",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "hiit_vigorous",
+      "group_code": "hiit",
+      "name": "Tabata / Max Effort Intervals (Burpees, jump squats)",
+      "met": 11,
+      "category": "Conditioning",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "zumba_home",
+      "group_code": "zumba",
+      "name": "Zumba (Casual / Home video)",
+      "met": 5.5,
+      "category": "Dancing",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "zumba_class",
+      "group_code": "zumba",
+      "name": "Zumba Group Fitness Class",
+      "met": 6.5,
+      "category": "Dancing",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "dance_salsa_moderate",
+      "group_code": "dance_salsa",
+      "name": "Salsa / Latin Dancing (Moderate / Recreational)",
+      "met": 4.6,
+      "category": "Dancing",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "dance_salsa_vigorous",
+      "group_code": "dance_salsa",
+      "name": "Salsa / Latin Dancing (Vigorous / High Intensity)",
+      "met": 6.5,
+      "category": "Dancing",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "dance_ballet_moderate",
+      "group_code": "dance_ballet",
+      "name": "Ballet Dancing (Moderate / Recreational)",
+      "met": 5,
+      "category": "Dancing",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "dance_ballet_vigorous",
+      "group_code": "dance_ballet",
+      "name": "Ballet Dancing (Vigorous / High Intensity)",
+      "met": 7.1,
+      "category": "Dancing",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "dancing_general_moderate",
+      "group_code": "dancing_general",
+      "name": "Dancing (General / Recreational) (Moderate / Recreational)",
+      "met": 5.3,
+      "category": "Dancing",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "dancing_general_vigorous",
+      "group_code": "dancing_general",
+      "name": "Dancing (General / Recreational) (Vigorous / High Intensity)",
+      "met": 7.4,
+      "category": "Dancing",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "dance_ballroom_moderate",
+      "group_code": "dance_ballroom",
+      "name": "Ballroom Dancing (Moderate / Recreational)",
+      "met": 6.6,
+      "category": "Dancing",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "dance_ballroom_vigorous",
+      "group_code": "dance_ballroom",
+      "name": "Ballroom Dancing (Vigorous / High Intensity)",
+      "met": 9.4,
+      "category": "Dancing",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "general_activity_moderate",
+      "group_code": "general_activity",
+      "name": "General Physical Activity (Moderate / Recreational)",
+      "met": 3.5,
+      "category": "General",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "general_activity_vigorous",
+      "group_code": "general_activity",
+      "name": "General Physical Activity (Vigorous / High Intensity)",
+      "met": 6,
+      "category": "General",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "walking_casual",
+      "group_code": "walking",
+      "name": "Casual Stroll (< 2.5 mph)",
+      "met": 2.5,
+      "category": "Walking",
+      "intensity_level": "light"
+    },
+    {
+      "code": "walking_moderate",
+      "group_code": "walking",
+      "name": "Moderate Pace (~3.0 mph)",
+      "met": 3.5,
+      "category": "Walking",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "walking_brisk",
+      "group_code": "walking",
+      "name": "Brisk Walk (~3.8 mph)",
+      "met": 4.5,
+      "category": "Walking",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "walking_power",
+      "group_code": "walking",
+      "name": "Power Walk / Fast (~4.5 mph)",
+      "met": 6,
+      "category": "Walking",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "walking_hills",
+      "group_code": "walking",
+      "name": "Hill / Incline Walk",
+      "met": 7,
+      "category": "Walking",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "kayaking_canoeing_moderate",
+      "group_code": "kayaking_canoeing",
+      "name": "Kayaking / Canoeing (Moderate / Recreational)",
+      "met": 5.6,
+      "category": "Water Activities",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "kayaking_canoeing_vigorous",
+      "group_code": "kayaking_canoeing",
+      "name": "Kayaking / Canoeing (Vigorous / High Intensity)",
+      "met": 7.9,
+      "category": "Water Activities",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "hiking_normal",
+      "group_code": "hiking",
+      "name": "Trail Hike (Normal terrain)",
+      "met": 5.3,
+      "category": "Walking",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "hiking_daypack",
+      "group_code": "hiking",
+      "name": "Hiking with Daypack",
+      "met": 7,
+      "category": "Walking",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "hiking_steep",
+      "group_code": "hiking",
+      "name": "Steep Mountain Hike / Backpacking",
+      "met": 8.5,
+      "category": "Walking",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "household_chores_moderate",
+      "group_code": "household_chores",
+      "name": "Active Household Chores (Moderate / Recreational)",
+      "met": 3.5,
+      "category": "Home Activities",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "household_chores_vigorous",
+      "group_code": "household_chores",
+      "name": "Active Household Chores (Vigorous / High Intensity)",
+      "met": 6,
+      "category": "Home Activities",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "heavy_cleaning_moderate",
+      "group_code": "heavy_cleaning",
+      "name": "Deep Cleaning / Scrubbing Floors (Moderate / Recreational)",
+      "met": 3.5,
+      "category": "Home Activities",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "heavy_cleaning_vigorous",
+      "group_code": "heavy_cleaning",
+      "name": "Deep Cleaning / Scrubbing Floors (Vigorous / High Intensity)",
+      "met": 6,
+      "category": "Home Activities",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "stair_climbing_slow",
+      "group_code": "stair_climbing",
+      "name": "Slow / Casual Stairs",
+      "met": 4.5,
+      "category": "Walking",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "stair_climbing_moderate",
+      "group_code": "stair_climbing",
+      "name": "Stairmaster / Step Machine",
+      "met": 6.8,
+      "category": "Walking",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "stair_climbing_fast",
+      "group_code": "stair_climbing",
+      "name": "Fast Pace / Two at a time",
+      "met": 8.5,
+      "category": "Walking",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "moving_furniture_moderate",
+      "group_code": "moving_furniture",
+      "name": "Moving Furniture / Heavy Lifting (Moderate / Recreational)",
+      "met": 4.9,
+      "category": "Home Activities",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "moving_furniture_vigorous",
+      "group_code": "moving_furniture",
+      "name": "Moving Furniture / Heavy Lifting (Vigorous / High Intensity)",
+      "met": 7,
+      "category": "Home Activities",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "yardwork_moderate",
+      "group_code": "yardwork",
+      "name": "Yardwork & Landscaping (Moderate / Recreational)",
+      "met": 3.9,
+      "category": "Lawn & Garden",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "yardwork_vigorous",
+      "group_code": "yardwork",
+      "name": "Yardwork & Landscaping (Vigorous / High Intensity)",
+      "met": 6,
+      "category": "Lawn & Garden",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "chopping_wood_moderate",
+      "group_code": "chopping_wood",
+      "name": "Splitting Logs (Moderate effort)",
+      "met": 4.5,
+      "category": "Lawn & Garden",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "chopping_wood_vigorous",
+      "group_code": "chopping_wood",
+      "name": "Splitting Logs (Vigorous effort)",
+      "met": 6.5,
+      "category": "Lawn & Garden",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "shoveling_dirt_moderate",
+      "group_code": "shoveling_dirt",
+      "name": "Shoveling (Dirt / Mud / Sand) (Moderate / Recreational)",
+      "met": 5,
+      "category": "Lawn & Garden",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "shoveling_dirt_vigorous",
+      "group_code": "shoveling_dirt",
+      "name": "Shoveling (Dirt / Mud / Sand) (Vigorous / High Intensity)",
+      "met": 7.1,
+      "category": "Lawn & Garden",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "gardening_light",
+      "group_code": "gardening",
+      "name": "Planting & Potting (Light effort)",
+      "met": 2.8,
+      "category": "Lawn & Garden",
+      "intensity_level": "light"
+    },
+    {
+      "code": "gardening_moderate",
+      "group_code": "gardening",
+      "name": "Weeding & Cultivating (Moderate effort)",
+      "met": 4,
+      "category": "Lawn & Garden",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "gardening_heavy",
+      "group_code": "gardening",
+      "name": "Heavy Landscaping (Digging, spading, soil)",
+      "met": 6,
+      "category": "Lawn & Garden",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "mowing_riding",
+      "group_code": "mowing_lawn",
+      "name": "Riding Mower",
+      "met": 2.5,
+      "category": "Lawn & Garden",
+      "intensity_level": "light"
+    },
+    {
+      "code": "mowing_power",
+      "group_code": "mowing_lawn",
+      "name": "Walk Behind Power Mower",
+      "met": 5,
+      "category": "Lawn & Garden",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "mowing_push",
+      "group_code": "mowing_lawn",
+      "name": "Manual Hand Push Mower (Vigorous)",
+      "met": 6,
+      "category": "Lawn & Garden",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "jogging_slow",
+      "group_code": "jogging",
+      "name": "Slow / Recovery Jog (< 4.0 mph)",
+      "met": 5,
+      "category": "Running",
+      "intensity_level": "light"
+    },
+    {
+      "code": "jogging_general",
+      "group_code": "jogging",
+      "name": "General Jogging (Self-selected pace)",
+      "met": 7.5,
+      "category": "Running",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "jogging_brisk",
+      "group_code": "jogging",
+      "name": "Brisk Jogging (~5.0 mph)",
+      "met": 8.5,
+      "category": "Running",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "running_trail_moderate",
+      "group_code": "running_trail",
+      "name": "Trail Jogging (Moderate hills)",
+      "met": 8.5,
+      "category": "Running",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "running_trail_steep",
+      "group_code": "running_trail",
+      "name": "Mountain / Elevation Trail Run",
+      "met": 12,
+      "category": "Running",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "running_stairs_moderate",
+      "group_code": "running_stairs",
+      "name": "Stair Running (Steady pace)",
+      "met": 12,
+      "category": "Running",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "running_stairs_fast",
+      "group_code": "running_stairs",
+      "name": "Stadium Bleachers / Fast Sprints",
+      "met": 15,
+      "category": "Running",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "running_track_intervals",
+      "group_code": "running_track",
+      "name": "Track Intervals (400m-800m repeats)",
+      "met": 10.5,
+      "category": "Running",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "running_track_sprints",
+      "group_code": "running_track",
+      "name": "Max Speed Sprints (100m-200m)",
+      "met": 16,
+      "category": "Running",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "running_treadmill_jog",
+      "group_code": "running_treadmill",
+      "name": "Treadmill Jog (~5.0 mph)",
+      "met": 8,
+      "category": "Running",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "running_treadmill_moderate",
+      "group_code": "running_treadmill",
+      "name": "Steady Treadmill Run (~6.0 - 7.0 mph)",
+      "met": 10,
+      "category": "Running",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "running_treadmill_fast",
+      "group_code": "running_treadmill",
+      "name": "Fast Treadmill Run (~7.5 - 8.5 mph)",
+      "met": 12,
+      "category": "Running",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "running_treadmill_intervals",
+      "group_code": "running_treadmill",
+      "name": "Treadmill Sprints / Intervals",
+      "met": 14.5,
+      "category": "Running",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "sports_general_moderate",
+      "group_code": "sports_general",
+      "name": "Sports (General) (Moderate / Recreational)",
+      "met": 5.4,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "sports_general_vigorous",
+      "group_code": "sports_general",
+      "name": "Sports (General) (Vigorous / High Intensity)",
+      "met": 7.6,
+      "category": "Sports",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "archery_moderate",
+      "group_code": "archery",
+      "name": "Archery (Moderate / Recreational)",
+      "met": 3.7,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "archery_vigorous",
+      "group_code": "archery",
+      "name": "Archery (Vigorous / High Intensity)",
+      "met": 6,
+      "category": "Sports",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "badminton_casual",
+      "group_code": "badminton",
+      "name": "Casual / Friendly Rally",
+      "met": 5.5,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "badminton_match",
+      "group_code": "badminton",
+      "name": "Competitive Match Play",
+      "met": 8,
+      "category": "Sports",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "basketball_shooting",
+      "group_code": "basketball",
+      "name": "Shooting Baskets / Drills",
+      "met": 5,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "basketball_casual",
+      "group_code": "basketball",
+      "name": "Casual Half-Court / Scrimmage",
+      "met": 6.5,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "basketball_game",
+      "group_code": "basketball",
+      "name": "Full Court Competitive Game",
+      "met": 8,
+      "category": "Sports",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "bowling_moderate",
+      "group_code": "bowling",
+      "name": "Bowling (Moderate / Recreational)",
+      "met": 3.5,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "bowling_vigorous",
+      "group_code": "bowling",
+      "name": "Bowling (Vigorous / High Intensity)",
+      "met": 6,
+      "category": "Sports",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "boxing_punching_bag",
+      "group_code": "boxing",
+      "name": "Punching / Heavy Bag Workout",
+      "met": 6.5,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "boxing_sparring",
+      "group_code": "boxing",
+      "name": "Sparring / Ring Exercise",
+      "met": 8.5,
+      "category": "Sports",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "boxing_in_ring",
+      "group_code": "boxing",
+      "name": "Competitive Boxing Match",
+      "met": 12,
+      "category": "Sports",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "swimming_general_leisure",
+      "group_code": "swimming_general",
+      "name": "Leisure Pool Swim / Casual Play",
+      "met": 5,
+      "category": "Water Activities",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "swimming_general_lake",
+      "group_code": "swimming_general",
+      "name": "Open Water / Lake Swim",
+      "met": 6,
+      "category": "Water Activities",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "swimming_general_treading",
+      "group_code": "swimming_general",
+      "name": "Treading Water",
+      "met": 6.5,
+      "category": "Water Activities",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "soccer_casual",
+      "group_code": "soccer",
+      "name": "Casual Kickabout / Scrimmage",
+      "met": 7,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "soccer_competitive",
+      "group_code": "soccer",
+      "name": "Competitive Match Play",
+      "met": 9.5,
+      "category": "Sports",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "fencing_moderate",
+      "group_code": "fencing",
+      "name": "Fencing (Moderate / Recreational)",
+      "met": 6.7,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "fencing_vigorous",
+      "group_code": "fencing",
+      "name": "Fencing (Vigorous / High Intensity)",
+      "met": 9.5,
+      "category": "Sports",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "american_football_moderate",
+      "group_code": "american_football",
+      "name": "American Football / Flag Football (Moderate / Recreational)",
+      "met": 4.8,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "american_football_vigorous",
+      "group_code": "american_football",
+      "name": "American Football / Flag Football (Vigorous / High Intensity)",
+      "met": 6.7,
+      "category": "Sports",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "frisbee_moderate",
+      "group_code": "frisbee",
+      "name": "Ultimate Frisbee / Disc Golf (Moderate / Recreational)",
+      "met": 4.7,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "frisbee_vigorous",
+      "group_code": "frisbee",
+      "name": "Ultimate Frisbee / Disc Golf (Vigorous / High Intensity)",
+      "met": 6.6,
+      "category": "Sports",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "golf_cart",
+      "group_code": "golf",
+      "name": "Using Power Cart",
+      "met": 3.5,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "golf_pulling_clubs",
+      "group_code": "golf",
+      "name": "Walking & Pulling Clubs",
+      "met": 4.5,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "golf_carrying_clubs",
+      "group_code": "golf",
+      "name": "Walking & Carrying Clubs",
+      "met": 4.5,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "golf_range",
+      "group_code": "golf",
+      "name": "Driving Range",
+      "met": 3.5,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "gymnastics_moderate",
+      "group_code": "gymnastics",
+      "name": "Gymnastics / Trampoline (Moderate / Recreational)",
+      "met": 5.5,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "gymnastics_vigorous",
+      "group_code": "gymnastics",
+      "name": "Gymnastics / Trampoline (Vigorous / High Intensity)",
+      "met": 7.8,
+      "category": "Sports",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "handball_moderate",
+      "group_code": "handball",
+      "name": "Handball (Moderate / Recreational)",
+      "met": 8.5,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "handball_vigorous",
+      "group_code": "handball",
+      "name": "Handball (Vigorous / High Intensity)",
+      "met": 12,
+      "category": "Sports",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "hockey_moderate",
+      "group_code": "hockey",
+      "name": "Hockey (Ice / Field) (Moderate / Recreational)",
+      "met": 7.3,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "hockey_vigorous",
+      "group_code": "hockey",
+      "name": "Hockey (Ice / Field) (Vigorous / High Intensity)",
+      "met": 10.3,
+      "category": "Sports",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "horseback_riding_moderate",
+      "group_code": "horseback_riding",
+      "name": "Horseback Riding (Moderate / Recreational)",
+      "met": 5.3,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "horseback_riding_vigorous",
+      "group_code": "horseback_riding",
+      "name": "Horseback Riding (Vigorous / High Intensity)",
+      "met": 7.4,
+      "category": "Sports",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "martial_arts_practice",
+      "group_code": "martial_arts",
+      "name": "Forms / Novice Practice (Kata / Basics)",
+      "met": 5.3,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "martial_arts_sparring",
+      "group_code": "martial_arts",
+      "name": "Active Sparring (Karate, Judo, Taekwondo)",
+      "met": 8.5,
+      "category": "Sports",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "martial_arts_intense",
+      "group_code": "martial_arts",
+      "name": "High Intensity Combat (Kickboxing, Muay Thai)",
+      "met": 11,
+      "category": "Sports",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "squash_racquetball_moderate",
+      "group_code": "squash_racquetball",
+      "name": "Squash / Racquetball (Moderate / Recreational)",
+      "met": 7.7,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "squash_racquetball_vigorous",
+      "group_code": "squash_racquetball",
+      "name": "Squash / Racquetball (Vigorous / High Intensity)",
+      "met": 10.9,
+      "category": "Sports",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "race_walking_moderate",
+      "group_code": "race_walking",
+      "name": "Race Walking (Moderate / Recreational)",
+      "met": 9.8,
+      "category": "Walking",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "race_walking_vigorous",
+      "group_code": "race_walking",
+      "name": "Race Walking (Vigorous / High Intensity)",
+      "met": 13.8,
+      "category": "Walking",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "rock_climbing_bouldering",
+      "group_code": "rock_climbing",
+      "name": "Bouldering (Indoor / Wall)",
+      "met": 7.5,
+      "category": "Sports",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "rock_climbing_rock",
+      "group_code": "rock_climbing",
+      "name": "Rock Climbing (Moderate difficulty)",
+      "met": 8.5,
+      "category": "Sports",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "rock_climbing_speed",
+      "group_code": "rock_climbing",
+      "name": "Speed Climbing / High Difficulty",
+      "met": 10.5,
+      "category": "Sports",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "rock_climbing_rappelling",
+      "group_code": "rock_climbing",
+      "name": "Rappelling / Downhill",
+      "met": 5,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "rugby_moderate",
+      "group_code": "rugby",
+      "name": "Rugby (Moderate / Recreational)",
+      "met": 6.2,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "rugby_vigorous",
+      "group_code": "rugby",
+      "name": "Rugby (Vigorous / High Intensity)",
+      "met": 8.8,
+      "category": "Sports",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "skateboarding_skating_moderate",
+      "group_code": "skateboarding_skating",
+      "name": "Skateboarding / Rollerblading (Moderate / Recreational)",
+      "met": 4.7,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "skateboarding_skating_vigorous",
+      "group_code": "skateboarding_skating",
+      "name": "Skateboarding / Rollerblading (Vigorous / High Intensity)",
+      "met": 6.6,
+      "category": "Sports",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "winter_sports_general_moderate",
+      "group_code": "winter_sports_general",
+      "name": "Winter Sports (General) (Moderate / Recreational)",
+      "met": 9.4,
+      "category": "Winter Activities",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "winter_sports_general_vigorous",
+      "group_code": "winter_sports_general",
+      "name": "Winter Sports (General) (Vigorous / High Intensity)",
+      "met": 13.2,
+      "category": "Winter Activities",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "baseball_softball_moderate",
+      "group_code": "baseball_softball",
+      "name": "Baseball / Softball (Moderate / Recreational)",
+      "met": 4.1,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "baseball_softball_vigorous",
+      "group_code": "baseball_softball",
+      "name": "Baseball / Softball (Vigorous / High Intensity)",
+      "met": 6,
+      "category": "Sports",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "tennis_casual",
+      "group_code": "tennis",
+      "name": "Hitting Balls / Casual Rally",
+      "met": 5,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "tennis_doubles",
+      "group_code": "tennis",
+      "name": "Doubles Match",
+      "met": 6,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "tennis_singles",
+      "group_code": "tennis",
+      "name": "Singles Competitive Match",
+      "met": 8,
+      "category": "Sports",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "tai_chi_moderate",
+      "group_code": "tai_chi",
+      "name": "Tai Chi / Qi Gong (Moderate / Recreational)",
+      "met": 3.5,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "tai_chi_vigorous",
+      "group_code": "tai_chi",
+      "name": "Tai Chi / Qi Gong (Vigorous / High Intensity)",
+      "met": 6,
+      "category": "Sports",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "volleyball_casual",
+      "group_code": "volleyball",
+      "name": "Casual Volleyball (6-9 players)",
+      "met": 3.5,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "volleyball_competitive",
+      "group_code": "volleyball",
+      "name": "Gymnasium Competitive Match",
+      "met": 6,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "volleyball_beach",
+      "group_code": "volleyball",
+      "name": "Beach / Sand Volleyball",
+      "met": 8,
+      "category": "Sports",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "wrestling_moderate",
+      "group_code": "wrestling",
+      "name": "Wrestling (Moderate / Recreational)",
+      "met": 5.1,
+      "category": "Sports",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "wrestling_vigorous",
+      "group_code": "wrestling",
+      "name": "Wrestling (Vigorous / High Intensity)",
+      "met": 7.2,
+      "category": "Sports",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "walking_hills_moderate",
+      "group_code": "walking_hills",
+      "name": "Hill / Incline Walking (Moderate / Recreational)",
+      "met": 7.6,
+      "category": "Walking",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "walking_hills_vigorous",
+      "group_code": "walking_hills",
+      "name": "Hill / Incline Walking (Vigorous / High Intensity)",
+      "met": 10.7,
+      "category": "Walking",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "walking_dog_casual",
+      "group_code": "walking_dog",
+      "name": "Casual Dog Walk (Slow / Stopping)",
+      "met": 2.5,
+      "category": "Walking",
+      "intensity_level": "light"
+    },
+    {
+      "code": "walking_dog_moderate",
+      "group_code": "walking_dog",
+      "name": "Brisk Dog Walk",
+      "met": 3.5,
+      "category": "Walking",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "walking_nordic_moderate",
+      "group_code": "walking_nordic",
+      "name": "Moderate Pace (with poles)",
+      "met": 4.5,
+      "category": "Walking",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "walking_nordic_fast",
+      "group_code": "walking_nordic",
+      "name": "Fast Pace / Uphill",
+      "met": 8.5,
+      "category": "Walking",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "surfing_moderate",
+      "group_code": "surfing",
+      "name": "Surfing (Moderate / Recreational)",
+      "met": 5.8,
+      "category": "Water Activities",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "surfing_vigorous",
+      "group_code": "surfing",
+      "name": "Surfing (Vigorous / High Intensity)",
+      "met": 8.2,
+      "category": "Water Activities",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "scuba_snorkeling_moderate",
+      "group_code": "scuba_snorkeling",
+      "name": "Scuba Diving / Snorkeling (Moderate / Recreational)",
+      "met": 6.7,
+      "category": "Water Activities",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "scuba_snorkeling_vigorous",
+      "group_code": "scuba_snorkeling",
+      "name": "Scuba Diving / Snorkeling (Vigorous / High Intensity)",
+      "met": 9.5,
+      "category": "Water Activities",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "paddleboarding_moderate",
+      "group_code": "paddleboarding",
+      "name": "Stand-Up Paddleboarding (SUP) (Moderate / Recreational)",
+      "met": 5.5,
+      "category": "Water Activities",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "paddleboarding_vigorous",
+      "group_code": "paddleboarding",
+      "name": "Stand-Up Paddleboarding (SUP) (Vigorous / High Intensity)",
+      "met": 7.8,
+      "category": "Water Activities",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "swimming_freestyle_slow",
+      "group_code": "swimming_freestyle",
+      "name": "Slow / Recreational Laps",
+      "met": 5.8,
+      "category": "Water Activities",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "swimming_freestyle_moderate",
+      "group_code": "swimming_freestyle",
+      "name": "Moderate Pace (~50 yards/min)",
+      "met": 8,
+      "category": "Water Activities",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "swimming_freestyle_vigorous",
+      "group_code": "swimming_freestyle",
+      "name": "Vigorous Laps (~75 yards/min)",
+      "met": 10,
+      "category": "Water Activities",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "swimming_freestyle_elite",
+      "group_code": "swimming_freestyle",
+      "name": "Sprint / Competitive Pace",
+      "met": 13.5,
+      "category": "Water Activities",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "swimming_backstroke_casual",
+      "group_code": "swimming_backstroke",
+      "name": "Recreational Backstroke",
+      "met": 4.8,
+      "category": "Water Activities",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "swimming_backstroke_vigorous",
+      "group_code": "swimming_backstroke",
+      "name": "Laps / Training Backstroke",
+      "met": 9.5,
+      "category": "Water Activities",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "swimming_breaststroke_casual",
+      "group_code": "swimming_breaststroke",
+      "name": "Recreational Breaststroke",
+      "met": 5.3,
+      "category": "Water Activities",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "swimming_breaststroke_vigorous",
+      "group_code": "swimming_breaststroke",
+      "name": "Laps / Competition Breaststroke",
+      "met": 10,
+      "category": "Water Activities",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "swimming_butterfly_general",
+      "group_code": "swimming_butterfly",
+      "name": "Butterfly Stroke",
+      "met": 13.8,
+      "category": "Water Activities",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "water_polo_moderate",
+      "group_code": "water_polo",
+      "name": "Water Polo (Moderate / Recreational)",
+      "met": 8.5,
+      "category": "Water Activities",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "water_polo_vigorous",
+      "group_code": "water_polo",
+      "name": "Water Polo (Vigorous / High Intensity)",
+      "met": 12,
+      "category": "Water Activities",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "sledding_moderate",
+      "group_code": "sledding",
+      "name": "Sledding / Tobogganing (Moderate / Recreational)",
+      "met": 6.2,
+      "category": "Winter Activities",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "sledding_vigorous",
+      "group_code": "sledding",
+      "name": "Sledding / Tobogganing (Vigorous / High Intensity)",
+      "met": 8.8,
+      "category": "Winter Activities",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "ice_skating_leisure",
+      "group_code": "ice_skating",
+      "name": "Casual / Leisure Rink Skating (< 9 mph)",
+      "met": 5.5,
+      "category": "Winter Activities",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "ice_skating_rapid",
+      "group_code": "ice_skating",
+      "name": "Fast / Vigorous Skating (> 9 mph)",
+      "met": 8.5,
+      "category": "Winter Activities",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "skiing_cross_country_moderate",
+      "group_code": "skiing_cross_country",
+      "name": "Cross-Country Skiing (Moderate / Recreational)",
+      "met": 11.1,
+      "category": "Winter Activities",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "skiing_cross_country_vigorous",
+      "group_code": "skiing_cross_country",
+      "name": "Cross-Country Skiing (Vigorous / High Intensity)",
+      "met": 15.7,
+      "category": "Winter Activities",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "skiing_downhill_light",
+      "group_code": "skiing_downhill",
+      "name": "Light Effort / Green Slopes",
+      "met": 4.3,
+      "category": "Winter Activities",
+      "intensity_level": "light"
+    },
+    {
+      "code": "skiing_downhill_moderate",
+      "group_code": "skiing_downhill",
+      "name": "Moderate Effort / Blue Slopes",
+      "met": 6.3,
+      "category": "Winter Activities",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "skiing_downhill_vigorous",
+      "group_code": "skiing_downhill",
+      "name": "Vigorous Effort / Black Slopes / Slalom",
+      "met": 8.5,
+      "category": "Winter Activities",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "snowboarding_moderate",
+      "group_code": "snowboarding",
+      "name": "Recreational Mountain Snowboarding",
+      "met": 7.5,
+      "category": "Winter Activities",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "snowshoeing_moderate",
+      "group_code": "snowshoeing",
+      "name": "Snowshoeing (Moderate / Recreational)",
+      "met": 6.5,
+      "category": "Winter Activities",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "snowshoeing_vigorous",
+      "group_code": "snowshoeing",
+      "name": "Snowshoeing (Vigorous / High Intensity)",
+      "met": 9.2,
+      "category": "Winter Activities",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "snow_shoveling_moderate",
+      "group_code": "snow_shoveling",
+      "name": "Shoveling Snow by Hand (Moderate)",
+      "met": 5.3,
+      "category": "Lawn & Garden",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "snow_shoveling_vigorous",
+      "group_code": "snow_shoveling",
+      "name": "Shoveling Heavy Snow (Vigorous)",
+      "met": 7.5,
+      "category": "Lawn & Garden",
+      "intensity_level": "vigorous"
+    },
+    {
+      "code": "vr_gaming_moderate",
+      "group_code": "vr_active_gaming",
+      "name": "Active VR Game (Beat Saber, motion gaming)",
+      "met": 4.5,
+      "category": "Gaming",
+      "intensity_level": "moderate"
+    },
+    {
+      "code": "vr_fitness_vigorous",
+      "group_code": "vr_active_gaming",
+      "name": "VR Fitness / Boxing Workout (Supernatural VR)",
+      "met": 7.9,
+      "category": "Gaming",
+      "intensity_level": "vigorous"
+    }
+  ]
+}

@@ -28,6 +28,7 @@ import { invokeScanFoodWithProgress } from '@/lib/scan';
 import { MealReviewModal } from '@/components/MealReviewModal';
 import { OnboardingModal } from '@/components/OnboardingModal';
 import { AddExerciseModal } from '@/components/AddExerciseModal';
+import { initCatalog } from '@/lib/compendiumCatalog';
 import { ExerciseSection } from '@/components/ExerciseSection';
 import { WeightSection } from '@/components/WeightSection';
 import { LogWeightModal } from '@/components/LogWeightModal';
@@ -110,6 +111,7 @@ export default function HomeScreen() {
   const [reviewVisible, setReviewVisible] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [editingEntry, setEditingEntry] = useState<MealEntry | null>(null);
+  const [editingExercise, setEditingExercise] = useState<ExerciseEntry | null>(null);
 
   const router = useRouter();
   const {
@@ -301,6 +303,7 @@ export default function HomeScreen() {
           }
         }
 
+        initCatalog(supabase);
         fetchDashboardData(user.id, selectedDate);
       } catch (e) {
         console.error("Init dashboard error:", e);
@@ -587,6 +590,30 @@ export default function HomeScreen() {
       setTodaysExercises(prev => [...prev, data as ExerciseEntry]);
     } catch (err: any) {
       showAlert('Log Failed', err.message);
+    }
+  };
+
+  const handleUpdateExercise = async (exerciseId: string, entryData: any, desc: string) => {
+    if (!userId) return;
+    try {
+      const { data, error } = await supabase
+        .from('exercises')
+        .update({
+          title: entryData.title,
+          exercise_type: entryData.exercise_type,
+          description: desc,
+          duration_minutes: entryData.duration_minutes,
+          calories_burned: Math.round(entryData.calories_burned || 0),
+        })
+        .eq('id', exerciseId)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setTodaysExercises(prev => prev.map(e => (e.id === exerciseId ? (data as ExerciseEntry) : e)));
+    } catch (err: any) {
+      showAlert('Update Failed', err.message);
     }
   };
 
@@ -1164,7 +1191,14 @@ export default function HomeScreen() {
         <View ref={exerciseSectionRef} collapsable={false}>
           <ExerciseSection
             entries={displayExercises}
-            onAddPress={() => setAddExerciseVisible(true)}
+            onAddPress={() => {
+              setEditingExercise(null);
+              setAddExerciseVisible(true);
+            }}
+            onEditExercise={(entry) => {
+              setEditingExercise(entry);
+              setAddExerciseVisible(true);
+            }}
             onDeleteEntry={handleDeleteExercise}
             onStepsPress={handleStepsPress}
           />
@@ -1196,9 +1230,15 @@ export default function HomeScreen() {
 
       <AddExerciseModal
         visible={addExerciseVisible}
-        onClose={() => setAddExerciseVisible(false)}
+        onClose={() => {
+          setAddExerciseVisible(false);
+          setEditingExercise(null);
+        }}
         onAnalyzeExercise={handleAnalyzeExercise}
         onLogExercise={handleLogExercise}
+        onUpdateExercise={handleUpdateExercise}
+        editingExercise={editingExercise}
+        userWeightKg={profile?.weight_kg || 70}
       />
 
       <LogWeightModal
@@ -1282,7 +1322,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 28,
+    marginBottom: 16,
   },
   headerRow: {
     flexDirection: 'row',

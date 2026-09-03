@@ -16,12 +16,13 @@ interface ExerciseSectionProps {
   entries: ExerciseEntry[];
   onAddPress: () => void;
   onDeleteEntry: (entry: ExerciseEntry) => void;
+  onEditExercise?: (entry: ExerciseEntry) => void;
   onStepsPress?: () => void;
 }
 
 const SMOOTH_EASING = Easing.bezier(0.25, 0.1, 0.25, 1.0);
 
-export function ExerciseSection({ entries, onAddPress, onDeleteEntry, onStepsPress }: ExerciseSectionProps) {
+export function ExerciseSection({ entries, onAddPress, onDeleteEntry, onEditExercise, onStepsPress }: ExerciseSectionProps) {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
   const [expanded, setExpanded] = React.useState(true); // default open
@@ -84,6 +85,9 @@ export function ExerciseSection({ entries, onAddPress, onDeleteEntry, onStepsPre
     overflow: 'hidden' as const,
   }));
 
+  const stepEntries = entries.filter((e) => e.exercise_type === 'Steps');
+  const structuredEntries = entries.filter((e) => e.exercise_type !== 'Steps');
+
   return (
     <View style={[styles.container, { backgroundColor: cardBg, borderColor }]}>
       <Pressable style={styles.header} onPress={toggleExpand}>
@@ -91,10 +95,10 @@ export function ExerciseSection({ entries, onAddPress, onDeleteEntry, onStepsPre
           <View style={[styles.iconWrap, { backgroundColor: color + '18' }]}>
             <Ionicons name="barbell-outline" size={20} color={color} />
           </View>
-          <Text style={[styles.title, { color: textPrimary }]}>ACTIVITY</Text>
+          <Text style={[styles.title, { color: textPrimary }]}>Activity</Text>
           {totalCalories > 0 && (
             <Text style={[styles.totalCal, { color: textSecondary }]}>
-              ~{Math.round(totalCalories)} kcal burned
+              ~{Math.round(totalCalories)} kcal
             </Text>
           )}
           <Animated.View style={chevronStyle}>
@@ -120,80 +124,67 @@ export function ExerciseSection({ entries, onAddPress, onDeleteEntry, onStepsPre
         <View style={{ position: 'absolute', top: 0, left: 0, right: 0 }} onLayout={handleContentLayout}>
           {entries.length > 0 ? (
             <View style={styles.entriesList}>
-              {entries.filter(e => e.exercise_type === 'Steps').length > 0 && (
-                <>
-                  <Text style={[styles.sectionTitle, { color: textSecondary }]}>Daily movement</Text>
-                  {entries.filter(e => e.exercise_type === 'Steps').map((entry) => (
+              {stepEntries.map((entry) => (
+                <TouchableOpacity 
+                  key={entry.id} 
+                  style={[styles.entryRow, { backgroundColor: entryBg }]}
+                  activeOpacity={0.7}
+                  onPress={onStepsPress}
+                  disabled={!onStepsPress}
+                >
+                  <View style={styles.entryInfo}>
+                    <Text style={[styles.entryName, { color: textPrimary }]}>
+                      {(entry.steps_count ?? -1) >= 0 ? `${(entry.steps_count ?? 0).toLocaleString()} Steps` : 'Steps Not Available'}
+                    </Text>
+                    {entry.description && (
+                      <Text style={[styles.entryMacros, { color: textSecondary }]}>
+                        {entry.description}
+                      </Text>
+                    )}
+                  </View>
+                  <View style={styles.entryRowRight}>
+                    <Text style={[styles.entryCal, { color: textPrimary }]}>
+                      ~{Math.round(entry.calories_burned)} kcal
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
 
-                      <TouchableOpacity 
-                        key={entry.id} 
-                        style={[styles.entryRow, { backgroundColor: entryBg }]}
-                        activeOpacity={0.7}
-                        onPress={onStepsPress}
-                        disabled={!onStepsPress}
-                      >
-                        <View style={styles.entryInfo}>
-                          <Text style={[styles.entryName, { color: textPrimary }]}>
-                            {(entry.steps_count ?? -1) >= 0 ? `${(entry.steps_count ?? 0).toLocaleString()} Steps` : 'Steps Not Available'}
-                          </Text>
-                          {entry.description && (
-                            <Text style={[styles.entryMacros, { color: textSecondary }]}>
-                              {entry.description}
-                            </Text>
-                          )}
-                        </View>
-                        <View style={styles.entryRowRight}>
-                          <Text style={[styles.entryCal, { color: textPrimary }]}>
-                            ~{Math.round(entry.calories_burned)} kcal
-                          </Text>
-                        </View>
-                      </TouchableOpacity>
-
-                  ))}
-                </>
-              )}
-
-              {entries.filter(e => e.exercise_type !== 'Steps').length > 0 && (
-                <>
-                  <Text style={[styles.sectionTitle, { color: textSecondary, marginTop: entries.filter(e => e.exercise_type === 'Steps').length > 0 ? 12 : 0 }]}>
-                    Structured exercise
-                  </Text>
-                  {entries.filter(e => e.exercise_type !== 'Steps').map((entry) => (
-                    <Swipeable
-                      key={entry.id}
-                      renderRightActions={() => (
-                        <Pressable
-                          style={styles.deleteButton}
-                          onPress={() => onDeleteEntry(entry)}
-                        >
-                          <Ionicons name="trash-outline" size={20} color="#FFFFFF" />
-                        </Pressable>
-                      )}
+              {structuredEntries.map((entry) => (
+                <Swipeable
+                  key={entry.id}
+                  renderRightActions={() => (
+                    <Pressable
+                      style={styles.deleteButton}
+                      onPress={() => onDeleteEntry(entry)}
                     >
-                      <View style={[styles.entryRow, { backgroundColor: entryBg }]}>
-                        <View style={styles.entryInfo}>
-                          <Text style={[styles.entryName, { color: textPrimary }]}>
-                            {entry.exercise_type}
-                          </Text>
-                          {entry.description && (
-                            <Text style={[styles.entryDesc, { color: textSecondary }]} numberOfLines={1}>
-                              {entry.description}
-                            </Text>
-                          )}
-                          <Text style={[styles.entryMacros, { color: textSecondary }]}>
-                            {entry.duration_minutes} min • {entry.exercise_type}
-                          </Text>
-                        </View>
-                        <View style={styles.entryRowRight}>
-                          <Text style={[styles.entryCal, { color: textPrimary }]}>
-                            ~{Math.round(entry.calories_burned)} kcal
-                          </Text>
-                        </View>
-                      </View>
-                    </Swipeable>
-                  ))}
-                </>
-              )}
+                      <Ionicons name="trash-outline" size={20} color="#FFFFFF" />
+                    </Pressable>
+                  )}
+                >
+                  <TouchableOpacity
+                    style={[styles.entryRow, { backgroundColor: entryBg }]}
+                    activeOpacity={0.7}
+                    onPress={() => onEditExercise && onEditExercise(entry)}
+                  >
+                    <View style={styles.entryInfo}>
+                      <Text style={[styles.entryName, { color: textPrimary }]} numberOfLines={1}>
+                        {entry.title || entry.exercise_type}
+                      </Text>
+                      <Text style={[styles.entryMacros, { color: textSecondary }]} numberOfLines={1}>
+                        {entry.duration_minutes ? `${entry.duration_minutes} min • ` : ''}
+                        {entry.exercise_type !== entry.title ? entry.exercise_type : (entry.description || 'Workout')}
+                      </Text>
+                    </View>
+                    <View style={styles.entryRowRight}>
+                      <Text style={[styles.entryCal, { color: textPrimary }]}>
+                        ~{Math.round(entry.calories_burned)} kcal
+                      </Text>
+                      <Ionicons name="chevron-forward" size={14} color={textSecondary} style={{ marginLeft: 4 }} />
+                    </View>
+                  </TouchableOpacity>
+                </Swipeable>
+              ))}
             </View>
           ) : (
             <Text style={[styles.emptyText, { color: textSecondary }]}>No activity logged yet</Text>

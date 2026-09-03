@@ -306,10 +306,17 @@ export function AddFoodModal({
                 placeholder="e.g. 2 scrambled eggs and 1 slice of toast, or 'I ate half of this'"
                 placeholderTextColor={textSecondary}
                 multiline
+                maxLength={100}
                 value={description}
                 onChangeText={setDescription}
                 autoFocus={!imageBase64} // Auto focus if no image was taken yet
               />
+
+              <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 4, marginBottom: 8 }}>
+                <Text style={{ fontSize: 11, color: description.length >= 75 ? '#F59E0B' : textSecondary }}>
+                  {description.length}/100
+                </Text>
+              </View>
 
               <View style={styles.actionButtons}>
                 <Pressable

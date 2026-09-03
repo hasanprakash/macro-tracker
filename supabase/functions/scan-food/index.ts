@@ -211,6 +211,13 @@ Deno.serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+
+    if (text && text.trim().length > 120) {
+      return new Response(
+        JSON.stringify({ error: 'Meal description is too long (maximum 120 characters)' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
     tParse = Math.round(performance.now() - tParseStart);
 
     const ip = req.headers.get('x-forwarded-for') || req.headers.get('cf-connecting-ip') || 'unknown-ip';
@@ -303,18 +310,18 @@ Deno.serve(async (req) => {
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
     
     let aiModel = 'gemini-3.6-flash'; // Safe fallback
-    let customApiKey = null;
+    let customApiKey: string | null = null;
     const { data: modelData } = await supabaseAdmin
       .from('user_ai_settings')
       .select('ai_model, custom_api_key')
       .eq('user_id', user.id)
-      .single();
+      .maybeSingle();
       
     if (modelData?.ai_model) {
       aiModel = modelData.ai_model;
     }
-    if (modelData?.custom_api_key) {
-      customApiKey = modelData.custom_api_key;
+    if (modelData?.custom_api_key && modelData.custom_api_key.trim()) {
+      customApiKey = modelData.custom_api_key.trim();
     }
     tDb = Math.round(performance.now() - tDbStart);
 
@@ -362,6 +369,7 @@ Deno.serve(async (req) => {
     if (!apiKey) {
       throw new Error("Missing GEMINI_API_KEY");
     }
+    console.log(`scan-food: user=${user.id} usingKey=${customApiKey ? 'USER_CUSTOM_BYOK' : 'SERVER_DEFAULT'}`);
 
     const parts: any[] = [{ text: geminiPrompt }];
 

@@ -21,6 +21,7 @@ interface WeightLog {
   id: string;
   weight: number;
   recorded_at: string;
+  log_date?: string;
 }
 
 function formatLocalDate(d: Date): string {
@@ -75,12 +76,11 @@ export default function AnalyticsScreen() {
       
       setSummaries(summaryData || []);
 
-      // Fetch weight logs
+      // Fetch weight logs (all available to allow historical forward-filling)
       const { data: weightData } = await supabase
         .from('weight_logs')
         .select('*')
         .eq('user_id', user.id)
-        .gte('recorded_at', thirtyDaysAgoStr)
         .order('recorded_at', { ascending: true });
 
       setWeightLogs(weightData || []);
@@ -119,7 +119,7 @@ export default function AnalyticsScreen() {
   }
   
   if (weightLogs.length > 0) {
-    const firstWeightStr = weightLogs[0].recorded_at.split('T')[0];
+    const firstWeightStr = weightLogs[0].log_date || weightLogs[0].recorded_at.split('T')[0];
     const [y, m, d] = firstWeightStr.split('-').map(Number);
     const firstWeightDate = new Date(y, m - 1, d);
     if (firstWeightDate < oldestLogDate) oldestLogDate = firstWeightDate;
@@ -137,14 +137,14 @@ export default function AnalyticsScreen() {
     
     const summaryMatch = summaries.find(s => s.summary_date === dateStr);
     
-    // Weight forward-fill
-    let weightForDay = null;
-    let latestBeforeDate = -1;
+    // Weight forward-fill using clean, timezone-safe date string comparison
+    let weightForDay: number | null = null;
+    let latestLogDateStr = '';
     
     for (const w of weightLogs) {
-      const wDate = new Date(w.recorded_at.split('T')[0]).getTime();
-      if (wDate <= d.getTime() && wDate > latestBeforeDate) {
-        latestBeforeDate = wDate;
+      const wDateStr = w.log_date || (w.recorded_at ? w.recorded_at.split('T')[0] : '');
+      if (wDateStr && wDateStr <= dateStr && wDateStr >= latestLogDateStr) {
+        latestLogDateStr = wDateStr;
         weightForDay = Number(w.weight);
       }
     }
@@ -172,9 +172,9 @@ export default function AnalyticsScreen() {
   const avgCarb = loggedDays.reduce((sum, d) => sum + d.carbs, 0) / numDaysLogged;
   const avgFat = loggedDays.reduce((sum, d) => sum + d.fat, 0) / numDaysLogged;
 
-  // Weight Plot
-  const maxWeight = Math.max(...weightLogs.map(w => Number(w.weight)));
-  const minWeight = Math.min(...weightLogs.map(w => Number(w.weight)));
+  // Weight Plot (defensive fallbacks to prevent -Infinity when weightLogs is empty)
+  const maxWeight = weightLogs.length > 0 ? Math.max(...weightLogs.map(w => Number(w.weight))) : 70;
+  const minWeight = weightLogs.length > 0 ? Math.min(...weightLogs.map(w => Number(w.weight))) : 70;
   const weightRange = maxWeight - minWeight || 10;
 
   return (
