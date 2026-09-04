@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, Dimensions } from 'react-native';
+import { formatWeight } from '@/lib/nutrition';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -38,14 +39,14 @@ export function CombinedChart({ data, targetCalories, isDark }: CombinedChartPro
   const minW = validWeights.length > 0 ? Math.min(...validWeights) : 70;
   const maxW = validWeights.length > 0 ? Math.max(...validWeights) : 70;
   
-  // Expand weight range slightly so dots don't sit exactly on the edges
-  let weightMin = minW - 2;
-  let weightMax = maxW + 2;
-  if (weightMin === weightMax) {
-    weightMin -= 5;
-    weightMax += 5;
-  }
-  const weightRange = weightMax - weightMin;
+  // Responsive padding: tight buffer so small weight fluctuations (e.g. +0.25kg) produce a clearly visible rise
+  const weightSpread = maxW - minW;
+  const weightPadding = weightSpread > 0 
+    ? Math.max(0.12, Math.min(0.8, weightSpread * 0.25))
+    : 0.8;
+  const weightMin = minW - weightPadding;
+  const weightMax = maxW + weightPadding;
+  const weightRange = weightMax - weightMin || 1.6;
 
   // --- Helpers for coordinates ---
   const getX = (index: number) => (index / Math.max(1, N - 1)) * CHART_WIDTH;
@@ -85,15 +86,20 @@ export function CombinedChart({ data, targetCalories, isDark }: CombinedChartPro
     );
   };
 
-  // Determine x-axis labels to show (max 6 labels to avoid crowding)
+  // Determine x-axis milestone labels to show (3 on mobile, 4 on wide screens to guarantee zero overlap)
+  const maxLabels = CHART_WIDTH >= 340 ? 4 : 3;
   const labelIndices: number[] = [];
-  if (N <= 6) {
+  if (N <= 2) {
     for (let i = 0; i < N; i++) labelIndices.push(i);
+  } else if (N === 3) {
+    labelIndices.push(0, 1, 2);
   } else {
-    const step = Math.floor(N / 5);
-    for (let i = 0; i < N; i += step) labelIndices.push(i);
-    if (labelIndices[labelIndices.length - 1] !== N - 1) {
-      labelIndices.push(N - 1);
+    const count = Math.min(maxLabels, N);
+    for (let k = 0; k < count; k++) {
+      const idx = Math.round((k / (count - 1)) * (N - 1));
+      if (!labelIndices.includes(idx)) {
+        labelIndices.push(idx);
+      }
     }
   }
 
@@ -152,8 +158,8 @@ export function CombinedChart({ data, targetCalories, isDark }: CombinedChartPro
           if (nextI >= N) return null;
 
           const next = data[nextI];
-          // Even though we forward-fill, if there are gaps (e.g. before first log), we handle them here
-          return renderLineSegment(getX(i), getWeightY(d.weight), getX(nextI), getWeightY(next.weight as number), '#60A5FA', `w-line-${i}`, 2);
+          // Render bold, smooth blue line
+          return renderLineSegment(getX(i), getWeightY(d.weight), getX(nextI), getWeightY(next.weight as number), '#60A5FA', `w-line-${i}`, 3);
         })}
         {data.map((d, i) => {
           if (d.weight === null) return null;
@@ -163,8 +169,11 @@ export function CombinedChart({ data, targetCalories, isDark }: CombinedChartPro
               style={[
                 styles.dot, 
                 { 
-                  left: getX(i) - 4, 
-                  top: getWeightY(d.weight) - 4, 
+                  left: getX(i) - 4.5, 
+                  top: getWeightY(d.weight) - 4.5, 
+                  width: 9,
+                  height: 9,
+                  borderRadius: 4.5,
                   backgroundColor: '#60A5FA',
                   borderColor: isDark ? '#1E293B' : '#FFF'
                 }
@@ -172,26 +181,110 @@ export function CombinedChart({ data, targetCalories, isDark }: CombinedChartPro
             />
           );
         })}
+
+        {/* Weight Floating Tags */}
+        {validWeights.length > 0 && (() => {
+          const firstIdx = data.findIndex(d => d.weight !== null);
+          const lastIdx = data.map(d => d.weight !== null).lastIndexOf(true);
+          if (lastIdx === -1) return null;
+          const currentWeight = data[lastIdx].weight as number;
+          const firstWeight = firstIdx !== -1 ? (data[firstIdx].weight as number) : currentWeight;
+          const weightDiff = currentWeight - firstWeight;
+          const hasChanged = Math.abs(weightDiff) >= 0.05 && firstIdx !== lastIdx;
+
+          const lastX = getX(lastIdx);
+          const lastY = getWeightY(currentWeight);
+
+          return (
+            <>
+              {/* Show starting weight milestone if weight changed across the window */}
+              {hasChanged && firstIdx !== -1 && (
+                <View
+                  key="first-weight-tag"
+                  style={{
+                    position: 'absolute',
+                    left: Math.max(0, Math.min(CHART_WIDTH - 65, getX(firstIdx) - 20)),
+                    top: Math.max(0, Math.min(CHART_HEIGHT - 26, getWeightY(firstWeight) - 24)),
+                    backgroundColor: isDark ? 'rgba(30, 41, 59, 0.92)' : 'rgba(255, 255, 255, 0.95)',
+                    borderColor: textSecondary,
+                    borderWidth: 1,
+                    borderRadius: 6,
+                    paddingHorizontal: 5,
+                    paddingVertical: 2,
+                    elevation: 2,
+                  }}
+                >
+                  <Text style={{ fontSize: 9.5, fontWeight: '600', color: textSecondary }}>
+                    {formatWeight(firstWeight)} kg
+                  </Text>
+                </View>
+              )}
+
+              {/* Latest Weight Floating Tag */}
+              <View
+                key="latest-weight-tag"
+                style={{
+                  position: 'absolute',
+                  left: Math.max(0, Math.min(CHART_WIDTH - 72, lastX - 36)),
+                  top: Math.max(0, Math.min(CHART_HEIGHT - 26, lastY - 24)),
+                  backgroundColor: isDark ? 'rgba(30, 41, 59, 0.95)' : 'rgba(255, 255, 255, 0.98)',
+                  borderColor: '#60A5FA',
+                  borderWidth: 1.5,
+                  borderRadius: 6,
+                  paddingHorizontal: 6,
+                  paddingVertical: 2,
+                  shadowColor: '#60A5FA',
+                  shadowOffset: { width: 0, height: 1 },
+                  shadowOpacity: 0.25,
+                  shadowRadius: 3,
+                  elevation: 3,
+                }}
+              >
+                <Text style={{ fontSize: 10, fontWeight: '700', color: '#60A5FA' }}>
+                  {formatWeight(currentWeight)} kg{hasChanged ? ` (${weightDiff > 0 ? '+' : ''}${formatWeight(weightDiff)})` : ''}
+                </Text>
+              </View>
+            </>
+          );
+        })()}
       </View>
 
-      {/* X-Axis Labels */}
+      {/* X-Axis Milestone Labels */}
       <View style={[styles.xAxis, { width: CHART_WIDTH }]}>
-        {data.map((d, i) => {
-          if (!labelIndices.includes(i)) {
-            // Render invisible placeholder to keep spacing if needed, but absolute positioning is better
-            return null;
+        {labelIndices.map((idx) => {
+          const d = data[idx];
+          if (!d) return null;
+          const LABEL_WIDTH = 54;
+          const isFirst = idx === 0;
+          const isLast = idx === N - 1;
+
+          let leftPos: number;
+          let textAlign: 'left' | 'center' | 'right';
+          if (isFirst) {
+            leftPos = 0;
+            textAlign = 'left';
+          } else if (isLast) {
+            leftPos = CHART_WIDTH - LABEL_WIDTH;
+            textAlign = 'right';
+          } else {
+            leftPos = Math.max(0, Math.min(CHART_WIDTH - LABEL_WIDTH, getX(idx) - LABEL_WIDTH / 2));
+            textAlign = 'center';
           }
+
           return (
             <Text 
-              key={`label-${i}`} 
+              key={`label-${idx}`} 
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.8}
               style={[
                 styles.xLabel, 
                 { 
                   color: textSecondary,
                   position: 'absolute',
-                  left: getX(i) - 15,
-                  width: 30,
-                  textAlign: 'center'
+                  left: leftPos,
+                  width: LABEL_WIDTH,
+                  textAlign,
                 }
               ]}
             >
@@ -209,7 +302,9 @@ export function CombinedChart({ data, targetCalories, isDark }: CombinedChartPro
         </View>
         <View style={styles.legendItem}>
           <View style={[styles.legendColor, { backgroundColor: '#60A5FA' }]} />
-          <Text style={[styles.legendText, { color: textPrimary }]}>Weight</Text>
+          <Text style={[styles.legendText, { color: textPrimary }]}>
+            Weight {validWeights.length > 0 ? `(${formatWeight(validWeights[validWeights.length - 1])} kg)` : ''}
+          </Text>
         </View>
         <View style={styles.legendItem}>
           <View style={[styles.legendLine, { backgroundColor: textSecondary }]} />
@@ -239,6 +334,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
+    height: 1,
     borderTopWidth: 1,
     borderStyle: 'dashed',
     zIndex: 1,
@@ -252,12 +348,13 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
   xAxis: {
-    height: 20,
+    height: 22,
     marginTop: 8,
     position: 'relative',
   },
   xLabel: {
     fontSize: 10,
+    fontWeight: '500',
   },
   legend: {
     flexDirection: 'row',

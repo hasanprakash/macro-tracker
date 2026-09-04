@@ -366,15 +366,15 @@ export function AddExerciseModal({
                   placeholder="e.g. 30 min brisk walk, or 45 min cycling"
                   placeholderTextColor={textSecondary}
                   multiline
-                  maxLength={500}
+                  maxLength={120}
                   numberOfLines={3}
                   value={exerciseText}
                   onChangeText={setExerciseText}
                   autoFocus
                 />
                 <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 4 }}>
-                  <Text style={{ fontSize: 11, color: exerciseText.length >= 450 ? '#F59E0B' : textSecondary }}>
-                    {exerciseText.length}/500
+                  <Text style={{ fontSize: 11, color: exerciseText.length >= 95 ? '#F59E0B' : textSecondary }}>
+                    {exerciseText.length}/120
                   </Text>
                 </View>
               </View>
@@ -613,6 +613,7 @@ export function AddExerciseModal({
                   onChangeText={setWorkoutTitle}
                   placeholder="e.g. Morning Workout"
                   placeholderTextColor={textSecondary}
+                  maxLength={120}
                 />
               </View>
 

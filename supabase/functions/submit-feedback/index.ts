@@ -14,8 +14,12 @@ const redisToken = Deno.env.get('UPSTASH_REDIS_REST_TOKEN');
 const redis = (redisUrl && redisToken) ? new Redis({ url: redisUrl, token: redisToken }) : null;
 
 const globalCacheMap = new Map();
+const userGlobalMinuteCacheMap = new Map();
+const userGlobalDailyCacheMap = new Map();
 const userDailyCacheMap = new Map();
 
+const userGlobalMinuteLimit = parseInt(Deno.env.get('USER_GLOBAL_LIMIT_PER_MINUTE') || '8', 10);
+const userGlobalDailyLimit = parseInt(Deno.env.get('USER_GLOBAL_LIMIT_PER_DAY') || '20', 10);
 const userDailyLimit = parseInt(Deno.env.get('FEEDBACK_LIMIT_PER_DAY') || '10', 10);
 const globalDailyLimit = parseInt(Deno.env.get('FEEDBACK_GLOBAL_LIMIT_PER_DAY') || '100', 10);
 
@@ -24,6 +28,20 @@ const globalLimiter = redis ? new Ratelimit({
   limiter: Ratelimit.slidingWindow(globalDailyLimit, "1 d"),
   ephemeralCache: globalCacheMap,
   prefix: "ratelimit:global:feedback"
+}) : null;
+
+const userGlobalMinuteLimiter = redis ? new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(userGlobalMinuteLimit, "1 m"),
+  ephemeralCache: userGlobalMinuteCacheMap,
+  prefix: "ratelimit:user:global:minute"
+}) : null;
+
+const userGlobalDailyLimiter = redis ? new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(userGlobalDailyLimit, "1 d"),
+  ephemeralCache: userGlobalDailyCacheMap,
+  prefix: "ratelimit:user:global:day"
 }) : null;
 
 const userDailyLimiter = redis ? new Ratelimit({
@@ -77,39 +95,64 @@ Deno.serve(async (req) => {
     const tRateLimitStart = performance.now();
     if (redis) {
       try {
-        // Check Global Daily Limit (100 / day)
-        if (globalLimiter) {
-          const globalRes = await globalLimiter.limit('global');
-          if (!globalRes.success) {
-            const retryAfter = Math.ceil((globalRes.reset - Date.now()) / 1000);
-            return new Response(
-              JSON.stringify({ 
-                error: 'Global feedback capacity reached for today. Please try again tomorrow.',
-                retry_after_seconds: retryAfter,
-                rate_limited: true,
-                is_global_limit: true
-              }),
-              { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": retryAfter.toString() } }
-            );
-          }
+        const [globalRes, userGlobalMinRes, userGlobalDayRes, userRes] = await Promise.all([
+          globalLimiter ? globalLimiter.limit('global') : { success: true },
+          userGlobalMinuteLimiter ? userGlobalMinuteLimiter.limit(user.id) : { success: true },
+          userGlobalDailyLimiter ? userGlobalDailyLimiter.limit(user.id) : { success: true },
+          userDailyLimiter ? userDailyLimiter.limit(user.id) : { success: true },
+        ]);
+
+        if (!globalRes.success) {
+          const retryAfter = Math.ceil((globalRes.reset - Date.now()) / 1000);
+          return new Response(
+            JSON.stringify({ 
+              error: 'Global feedback capacity reached for today. Please try again tomorrow.',
+              retry_after_seconds: retryAfter,
+              rate_limited: true,
+              is_global_limit: true
+            }),
+            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": retryAfter.toString() } }
+          );
         }
 
-        // Check Per-User Daily Limit (10 / day)
-        if (userDailyLimiter) {
-          const userRes = await userDailyLimiter.limit(user.id);
-          if (!userRes.success) {
-            const retryAfter = Math.ceil((userRes.reset - Date.now()) / 1000);
-            const hours = Math.ceil(retryAfter / 3600);
-            return new Response(
-              JSON.stringify({ 
-                error: `You have reached the daily limit of ${userDailyLimit} feedback submissions. Resets in ${hours} hour${hours > 1 ? 's' : ''}.`,
-                retry_after_seconds: retryAfter,
-                rate_limited: true,
-                is_user_limit: true
-              }),
-              { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": retryAfter.toString() } }
-            );
-          }
+        if (!userGlobalMinRes.success) {
+          const retryAfter = Math.ceil((userGlobalMinRes.reset - Date.now()) / 1000);
+          return new Response(
+            JSON.stringify({ 
+              error: `Too many requests across app actions. Please wait ${retryAfter}s before trying again.`,
+              retry_after_seconds: retryAfter,
+              rate_limited: true
+            }),
+            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": retryAfter.toString() } }
+          );
+        }
+
+        if (!userGlobalDayRes.success) {
+          const retryAfter = Math.ceil((userGlobalDayRes.reset - Date.now()) / 1000);
+          const hours = Math.ceil(retryAfter / 3600);
+          return new Response(
+            JSON.stringify({ 
+              error: `Daily limit reached across app actions (${userGlobalDailyLimit} requests/day). Resets in ${hours} hour${hours > 1 ? 's' : ''}.`,
+              retry_after_seconds: retryAfter,
+              rate_limited: true,
+              is_daily_limit: true
+            }),
+            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": retryAfter.toString() } }
+          );
+        }
+
+        if (!userRes.success) {
+          const retryAfter = Math.ceil((userRes.reset - Date.now()) / 1000);
+          const hours = Math.ceil(retryAfter / 3600);
+          return new Response(
+            JSON.stringify({ 
+              error: `You have reached the daily limit of ${userDailyLimit} feedback submissions. Resets in ${hours} hour${hours > 1 ? 's' : ''}.`,
+              retry_after_seconds: retryAfter,
+              rate_limited: true,
+              is_user_limit: true
+            }),
+            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": retryAfter.toString() } }
+          );
         }
       } catch (err) {
         console.warn("submit-feedback: Rate limiter failed open:", err);

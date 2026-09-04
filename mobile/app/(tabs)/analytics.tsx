@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, Dimensions, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '@/lib/supabase';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Ionicons } from '@expo/vector-icons';
 import { CombinedChart } from '@/components/CombinedChart';
+import { formatWeight } from '@/lib/nutrition';
 
 const { width } = Dimensions.get('window');
 
@@ -31,6 +32,38 @@ function formatLocalDate(d: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+const renderLineSegment = (
+  x1: number, y1: number, 
+  x2: number, y2: number, 
+  color: string, 
+  key: string,
+  thickness: number = 2
+) => {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const length = Math.sqrt(dx * dx + dy * dy);
+  const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+
+  const centerX = (x1 + x2) / 2;
+  const centerY = (y1 + y2) / 2;
+
+  return (
+    <View
+      key={key}
+      style={{
+        position: 'absolute',
+        width: length,
+        height: thickness,
+        backgroundColor: color,
+        left: centerX - length / 2,
+        top: centerY - thickness / 2,
+        transform: [{ rotate: `${angle}deg` }],
+        borderRadius: thickness / 2,
+      }}
+    />
+  );
+};
+
 export default function AnalyticsScreen() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
@@ -38,20 +71,24 @@ export default function AnalyticsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [summaries, setSummaries] = useState<DailySummary[]>([]);
   const [weightLogs, setWeightLogs] = useState<WeightLog[]>([]);
+  const [weightTrendWidth, setWeightTrendWidth] = useState<number>(0);
+  const [profileWeight, setProfileWeight] = useState<number | null>(null);
+  const [startingWeight, setStartingWeight] = useState<number | null>(null);
   const [targetCalories, setTargetCalories] = useState(2000);
   const [targetProtein, setTargetProtein] = useState(150);
   const [targetCarbs, setTargetCarbs] = useState(200);
   const [targetFat, setTargetFat] = useState(65);
+  const [selectedDayIndex, setSelectedDayIndex] = useState<number | null>(null);
 
   const fetchAnalyticsData = useCallback(async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Fetch Profile
+      // Fetch Profile (including weight_kg and starting_weight_kg)
       const { data: profile } = await supabase
         .from('profiles')
-        .select('target_calories, target_protein, target_carbs, target_fat')
+        .select('target_calories, target_protein, target_carbs, target_fat, weight_kg, starting_weight_kg')
         .eq('id', user.id)
         .single();
       
@@ -60,6 +97,8 @@ export default function AnalyticsScreen() {
         setTargetProtein(profile.target_protein || 150);
         setTargetCarbs(profile.target_carbs || 200);
         setTargetFat(profile.target_fat || 65);
+        setProfileWeight(profile.weight_kg ? Number(profile.weight_kg) : null);
+        setStartingWeight(profile.starting_weight_kg ? Number(profile.starting_weight_kg) : null);
       }
 
       // Fetch last 30 days summaries (so we have data for the dynamic window)
@@ -76,7 +115,7 @@ export default function AnalyticsScreen() {
       
       setSummaries(summaryData || []);
 
-      // Fetch weight logs (all available to allow historical forward-filling)
+      // Fetch weight logs (all available to allow historical forward & backward filling)
       const { data: weightData } = await supabase
         .from('weight_logs')
         .select('*')
@@ -128,20 +167,41 @@ export default function AnalyticsScreen() {
   const daysSinceFirstLog = Math.floor((today.getTime() - oldestLogDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
   const chartDaysCount = Math.max(7, Math.min(30, daysSinceFirstLog));
 
+  // Sort weight logs chronologically by date
+  const sortedWeightLogs = [...weightLogs].sort((a, b) => {
+    const dateA = a.log_date || (a.recorded_at ? a.recorded_at.split('T')[0] : '');
+    const dateB = b.log_date || (b.recorded_at ? b.recorded_at.split('T')[0] : '');
+    return dateA.localeCompare(dateB);
+  });
+
+  const todayStr = formatLocalDate(today);
+
+  // Determine baseline weight for back-filling prior days
+  const earliestLog = sortedWeightLogs[0];
+  const earliestLogDate = earliestLog ? (earliestLog.log_date || (earliestLog.recorded_at ? earliestLog.recorded_at.split('T')[0] : '')) : null;
+  const isOnlyTodayLogged = earliestLogDate === todayStr && sortedWeightLogs.length === 1;
+
+  const fallbackBaselineWeight = isOnlyTodayLogged
+    ? (startingWeight ?? profileWeight ?? (earliestLog ? Number(earliestLog.weight) : 70))
+    : (sortedWeightLogs.length > 0 ? Number(sortedWeightLogs[0].weight) : (startingWeight ?? profileWeight ?? 70));
+
   // Format combined data
   const combinedData = Array.from({ length: chartDaysCount }).map((_, i) => {
     const d = new Date(today);
     d.setDate(d.getDate() - (chartDaysCount - 1 - i));
     const dateStr = formatLocalDate(d);
     const shortDay = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const weekday = d.toLocaleDateString('en-US', { weekday: 'short' });
+    const isToday = dateStr === todayStr;
+    const fullDateLabel = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
     
     const summaryMatch = summaries.find(s => s.summary_date === dateStr);
     
-    // Weight forward-fill using clean, timezone-safe date string comparison
+    // Weight forward-fill: find the latest recorded log on or before dateStr
     let weightForDay: number | null = null;
     let latestLogDateStr = '';
     
-    for (const w of weightLogs) {
+    for (const w of sortedWeightLogs) {
       const wDateStr = w.log_date || (w.recorded_at ? w.recorded_at.split('T')[0] : '');
       if (wDateStr && wDateStr <= dateStr && wDateStr >= latestLogDateStr) {
         latestLogDateStr = wDateStr;
@@ -149,9 +209,18 @@ export default function AnalyticsScreen() {
       }
     }
 
+    // Back-fill: if dateStr is before the user's first log, use baseline or profile weight
+    if (weightForDay === null) {
+      weightForDay = fallbackBaselineWeight;
+    }
+
     return {
       date: dateStr,
       label: shortDay,
+      dayLabel: isToday ? 'Today' : weekday,
+      weekday,
+      isToday,
+      fullDateLabel,
       calories: summaryMatch ? Number(summaryMatch.total_calories) : 0,
       protein: summaryMatch ? Number(summaryMatch.total_protein) : 0,
       carbs: summaryMatch ? Number(summaryMatch.total_carbs) : 0,
@@ -161,6 +230,9 @@ export default function AnalyticsScreen() {
   });
 
   const last7Days = combinedData.slice(-7);
+  const last7DaysDateRange = last7Days.length > 0
+    ? `${last7Days[0].label} – ${last7Days[last7Days.length - 1].label}`
+    : '';
   const maxCal = Math.max(targetCalories, ...last7Days.map(d => d.calories)) * 1.1 || 2500;
   
   // Averages based only on days logged
@@ -195,33 +267,147 @@ export default function AnalyticsScreen() {
 
         {/* Calories Chart */}
         <View style={[styles.card, { backgroundColor: cardBg }]}>
-          <Text style={[styles.cardTitle, { color: textPrimary }]}>Calories (Last 7 Days)</Text>
+          <View style={styles.cardHeaderRow}>
+            <Text style={[styles.cardTitle, { color: textPrimary }]}>Calories (Last 7 Days)</Text>
+            {last7DaysDateRange ? (
+              <Text style={[styles.cardDateRange, { color: textSecondary }]}>{last7DaysDateRange}</Text>
+            ) : null}
+          </View>
+
+          {/* Interactive Day Details Banner */}
+          {selectedDayIndex !== null && last7Days[selectedDayIndex] && (() => {
+            const selectedDay = last7Days[selectedDayIndex];
+            const isOver = selectedDay.calories > targetCalories;
+            const bannerBg = isDark 
+              ? (isOver ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)')
+              : (isOver ? '#FEF2F2' : '#ECFDF5');
+            const bannerBorder = isDark 
+              ? (isOver ? 'rgba(239, 68, 68, 0.35)' : 'rgba(16, 185, 129, 0.35)')
+              : (isOver ? '#FECACA' : '#A7F3D0');
+            const iconColor = isOver ? '#EF4444' : '#10B981';
+            const textColor = isDark 
+              ? (isOver ? '#FCA5A5' : '#A7F3D0') 
+              : (isOver ? '#991B1B' : '#065F46');
+
+            return (
+              <View style={[styles.selectedDayBadge, { backgroundColor: bannerBg, borderColor: bannerBorder }]}>
+                <Ionicons name={isOver ? "alert-circle-outline" : "checkmark-circle-outline"} size={14} color={iconColor} />
+                <Text style={[styles.selectedDayText, { color: textColor }]}>
+                  {selectedDay.fullDateLabel}: {Math.round(selectedDay.calories)} kcal
+                  {selectedDay.calories > targetCalories
+                    ? ` (${Math.round(selectedDay.calories - targetCalories)} kcal over target)`
+                    : ` (${Math.round(targetCalories - selectedDay.calories)} kcal under target)`}
+                </Text>
+              </View>
+            );
+          })()}
+
           <View style={styles.chartContainer}>
-            {last7Days.map((day, i) => {
-              const heightPct = (day.calories / maxCal) * 100;
-              const isOver = day.calories > targetCalories;
-              return (
-                <View key={i} style={styles.barCol}>
-                  <Text style={[styles.barLabel, { color: textSecondary, marginBottom: 4 }]}>
-                    {Math.round(day.calories)}
-                  </Text>
-                  <View style={styles.barTrack}>
-                    <View 
+            {/* 1. Numbers Row above the bars */}
+            <View style={styles.calNumbersRow}>
+              {last7Days.map((day, i) => {
+                const isSelected = selectedDayIndex === i;
+                const isOver = day.calories > targetCalories;
+                return (
+                  <View key={`cal-${i}`} style={styles.barCol}>
+                    <Text 
+                      numberOfLines={1}
                       style={[
-                        styles.barFill, 
-                        { 
-                          height: `${heightPct}%`, 
-                          backgroundColor: isOver ? '#EF4444' : '#10B981' 
-                        }
-                      ]} 
-                    />
+                        styles.barCalLabel, 
+                        { color: isSelected ? (isOver ? '#EF4444' : '#10B981') : textSecondary }
+                      ]}
+                    >
+                      {day.calories > 0 ? Math.round(day.calories) : ''}
+                    </Text>
                   </View>
-                  <Text style={[styles.barLabel, { color: textPrimary, marginTop: 4 }]}>{day.label}</Text>
-                </View>
-              );
-            })}
-            {/* Target Line */}
-            <View style={[styles.targetLine, { bottom: `${(targetCalories / maxCal) * 100}%`, borderColor: textSecondary }]} />
+                );
+              })}
+            </View>
+
+            {/* 2. Bar Plotting Area with Shared Coordinate System */}
+            <View style={[styles.barPlotArea, { height: 140 }]}>
+              {/* Target Line - positioned at exact pixel height within the 140dp area */}
+              <View 
+                style={[
+                  styles.targetLine, 
+                  { 
+                    bottom: Math.max(0, Math.min(139, Math.round((targetCalories / maxCal) * 140))),
+                    borderColor: textSecondary,
+                  }
+                ]} 
+              />
+
+              {/* 7 Bars */}
+              {last7Days.map((day, i) => {
+                const isOver = day.calories > targetCalories;
+                const isSelected = selectedDayIndex === i;
+                const fillHeight = Math.max(0, Math.min(140, Math.round((day.calories / maxCal) * 140)));
+
+                return (
+                  <Pressable 
+                    key={`bar-${i}`} 
+                    style={styles.barCol}
+                    onPress={() => setSelectedDayIndex(isSelected ? null : i)}
+                  >
+                    <View style={[styles.barTrack, { height: 140 }]}>
+                      <View 
+                        style={[
+                          styles.barFill, 
+                          { 
+                            height: fillHeight, 
+                            backgroundColor: isOver ? '#EF4444' : '#10B981' 
+                          }
+                        ]} 
+                      />
+                      {isSelected && (
+                        <View 
+                          style={[
+                            StyleSheet.absoluteFill, 
+                            {
+                              borderRadius: 6,
+                              borderWidth: 2,
+                              borderColor: isOver ? '#EF4444' : '#10B981',
+                              backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)',
+                            }
+                          ]}
+                          pointerEvents="none"
+                        />
+                      )}
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {/* 3. Day Labels Row below the bars */}
+            <View style={styles.dayLabelsRow}>
+              {last7Days.map((day, i) => {
+                const isSelected = selectedDayIndex === i;
+                return (
+                  <Pressable 
+                    key={`label-${i}`} 
+                    style={styles.barCol}
+                    onPress={() => setSelectedDayIndex(isSelected ? null : i)}
+                  >
+                    <Text 
+                      numberOfLines={1} 
+                      adjustsFontSizeToFit 
+                      minimumFontScale={0.7} 
+                      ellipsizeMode="clip"
+                      style={[
+                        styles.barLabel, 
+                        { 
+                          color: day.isToday ? '#10B981' : (isSelected ? '#10B981' : textPrimary),
+                          fontWeight: (day.isToday || isSelected) ? '700' : '600',
+                        }
+                      ]}
+                    >
+                      {day.dayLabel}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
           </View>
           <View style={styles.chartLegend}>
             <View style={styles.legendItem}>
@@ -280,53 +466,161 @@ export default function AnalyticsScreen() {
         {/* Weight Trend */}
         <View style={[styles.card, { backgroundColor: cardBg }]}>
           <Text style={[styles.cardTitle, { color: textPrimary }]}>Weight Trend (30 Days)</Text>
-          {weightLogs.length > 1 ? (
-            <View style={styles.weightChartContainer}>
-              <View style={styles.weightChartArea}>
-                {weightLogs.map((log, i) => {
-                  const xPct = (i / (weightLogs.length - 1)) * 100;
-                  const yPct = ((Number(log.weight) - minWeight) / weightRange) * 100;
-                  return (
-                    <View 
-                      key={log.id} 
-                      style={[
-                        styles.weightDot, 
-                        { 
-                          left: `${xPct}%`, 
-                          bottom: `${yPct}%`,
-                          backgroundColor: '#8B5CF6'
-                        }
-                      ]} 
-                    />
-                  );
-                })}
-              </View>
-              <View style={styles.weightLabels}>
-                <Text style={[styles.weightLabelText, { color: textSecondary }]}>{new Date(weightLogs[0].recorded_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</Text>
-                <Text style={[styles.weightLabelText, { color: textSecondary }]}>{new Date(weightLogs[weightLogs.length - 1].recorded_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</Text>
-              </View>
-              <View style={styles.weightStats}>
-                <View style={styles.weightStatBox}>
-                  <Text style={[styles.weightStatLabel, { color: textSecondary }]}>Starting</Text>
-                  <Text style={[styles.weightStatValue, { color: textPrimary }]}>{Number(weightLogs[0].weight).toFixed(1)} kg</Text>
+          {sortedWeightLogs.length > 1 ? (() => {
+            const startingLog = sortedWeightLogs[0];
+            const currentLog = sortedWeightLogs[sortedWeightLogs.length - 1];
+            const startWeightNum = Number(startingLog.weight);
+            const currentWeightNum = Number(currentLog.weight);
+            const weightDiff = currentWeightNum - startWeightNum;
+            const hasChanged = Math.abs(weightDiff) >= 0.05;
+
+            const trendMinW = Math.min(...sortedWeightLogs.map(w => Number(w.weight)));
+            const trendMaxW = Math.max(...sortedWeightLogs.map(w => Number(w.weight)));
+            const trendSpread = trendMaxW - trendMinW;
+            const trendPadding = trendSpread > 0 ? Math.max(0.12, trendSpread * 0.25) : 0.8;
+            const trendMinY = trendMinW - trendPadding;
+            const trendMaxY = trendMaxW + trendPadding;
+            const trendRange = trendMaxY - trendMinY || 1.6;
+
+            const chartAreaW = weightTrendWidth || (width - 100);
+            const getTrendX = (i: number) => {
+              return (i / Math.max(1, sortedWeightLogs.length - 1)) * (chartAreaW - 40) + 20;
+            };
+            const getTrendY = (w: number) => {
+              return 120 - ((w - trendMinY) / trendRange) * 80 - 20;
+            };
+
+            const startDateObj = new Date(startingLog.log_date ? `${startingLog.log_date}T00:00:00` : startingLog.recorded_at);
+            const currentDateObj = new Date(currentLog.log_date ? `${currentLog.log_date}T00:00:00` : currentLog.recorded_at);
+
+            return (
+              <View style={styles.weightChartContainer}>
+                <View 
+                  style={styles.weightChartArea}
+                  onLayout={(e) => setWeightTrendWidth(e.nativeEvent.layout.width)}
+                >
+                  {/* Connecting Line Segments */}
+                  {sortedWeightLogs.map((log, i) => {
+                    if (i >= sortedWeightLogs.length - 1) return null;
+                    const nextLog = sortedWeightLogs[i + 1];
+                    return renderLineSegment(
+                      getTrendX(i),
+                      getTrendY(Number(log.weight)),
+                      getTrendX(i + 1),
+                      getTrendY(Number(nextLog.weight)),
+                      '#8B5CF6',
+                      `trend-line-${i}`,
+                      3
+                    );
+                  })}
+
+                  {/* Dots */}
+                  {sortedWeightLogs.map((log, i) => {
+                    const x = getTrendX(i);
+                    const y = getTrendY(Number(log.weight));
+                    return (
+                      <View 
+                        key={log.id} 
+                        style={[
+                          styles.weightDot, 
+                          { 
+                            left: x - 4.5, 
+                            top: y - 4.5,
+                            width: 9,
+                            height: 9,
+                            borderRadius: 4.5,
+                            backgroundColor: '#8B5CF6',
+                            borderColor: isDark ? '#1E293B' : '#FFF',
+                            borderWidth: 1.5,
+                            marginLeft: 0,
+                            marginBottom: 0,
+                          }
+                        ]} 
+                      />
+                    );
+                  })}
+
+                  {/* Starting Weight Milestone Tag */}
+                  {hasChanged && (
+                    <View
+                      style={{
+                        position: 'absolute',
+                        left: Math.max(0, Math.min(chartAreaW - 65, getTrendX(0) - 20)),
+                        top: Math.max(0, Math.min(120 - 26, getTrendY(startWeightNum) - 24)),
+                        backgroundColor: isDark ? 'rgba(30, 41, 59, 0.92)' : 'rgba(255, 255, 255, 0.95)',
+                        borderColor: textSecondary,
+                        borderWidth: 1,
+                        borderRadius: 6,
+                        paddingHorizontal: 5,
+                        paddingVertical: 2,
+                        elevation: 2,
+                      }}
+                    >
+                      <Text style={{ fontSize: 9.5, fontWeight: '600', color: textSecondary }}>
+                        {formatWeight(startWeightNum)} kg
+                      </Text>
+                    </View>
+                  )}
+
+                  {/* Latest Weight Floating Tag */}
+                  <View
+                    style={{
+                      position: 'absolute',
+                      left: Math.max(0, Math.min(chartAreaW - 78, getTrendX(sortedWeightLogs.length - 1) - 40)),
+                      top: Math.max(0, Math.min(120 - 26, getTrendY(currentWeightNum) - 24)),
+                      backgroundColor: isDark ? 'rgba(30, 41, 59, 0.95)' : 'rgba(255, 255, 255, 0.98)',
+                      borderColor: '#8B5CF6',
+                      borderWidth: 1.5,
+                      borderRadius: 6,
+                      paddingHorizontal: 6,
+                      paddingVertical: 2,
+                      shadowColor: '#8B5CF6',
+                      shadowOffset: { width: 0, height: 1 },
+                      shadowOpacity: 0.25,
+                      shadowRadius: 3,
+                      elevation: 3,
+                    }}
+                  >
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: '#8B5CF6' }}>
+                      {formatWeight(currentWeightNum)} kg{hasChanged ? ` (${weightDiff > 0 ? '+' : ''}${formatWeight(weightDiff)})` : ''}
+                    </Text>
+                  </View>
                 </View>
-                <View style={styles.weightStatBox}>
-                  <Text style={[styles.weightStatLabel, { color: textSecondary }]}>Current</Text>
-                  <Text style={[styles.weightStatValue, { color: textPrimary }]}>{Number(weightLogs[weightLogs.length - 1].weight).toFixed(1)} kg</Text>
-                </View>
-                <View style={styles.weightStatBox}>
-                  <Text style={[styles.weightStatLabel, { color: textSecondary }]}>Change</Text>
-                  <Text style={[
-                    styles.weightStatValue, 
-                    { color: Number(weightLogs[weightLogs.length - 1].weight) < Number(weightLogs[0].weight) ? '#10B981' : '#EF4444' }
-                  ]}>
-                    {Number(weightLogs[weightLogs.length - 1].weight) < Number(weightLogs[0].weight) ? '-' : '+'}
-                    {Math.abs(Number(weightLogs[weightLogs.length - 1].weight) - Number(weightLogs[0].weight)).toFixed(1)} kg
+
+                {/* Date Labels below chart */}
+                <View style={styles.weightLabels}>
+                  <Text numberOfLines={1} style={[styles.weightLabelText, { color: textSecondary }]}>
+                    {startDateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  </Text>
+                  <Text numberOfLines={1} style={[styles.weightLabelText, { color: textSecondary }]}>
+                    {currentDateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                   </Text>
                 </View>
+
+                {/* Summary Stats */}
+                <View style={styles.weightStats}>
+                  <View style={styles.weightStatBox}>
+                    <Text style={[styles.weightStatLabel, { color: textSecondary }]}>Starting</Text>
+                    <Text style={[styles.weightStatValue, { color: textPrimary }]}>{formatWeight(startWeightNum)} kg</Text>
+                  </View>
+                  <View style={styles.weightStatBox}>
+                    <Text style={[styles.weightStatLabel, { color: textSecondary }]}>Current</Text>
+                    <Text style={[styles.weightStatValue, { color: textPrimary }]}>{formatWeight(currentWeightNum)} kg</Text>
+                  </View>
+                  <View style={styles.weightStatBox}>
+                    <Text style={[styles.weightStatLabel, { color: textSecondary }]}>Change</Text>
+                    <Text style={[
+                      styles.weightStatValue, 
+                      { color: weightDiff < 0 ? '#10B981' : (weightDiff > 0 ? '#EF4444' : textSecondary) }
+                    ]}>
+                      {weightDiff < 0 ? '-' : (weightDiff > 0 ? '+' : '')}
+                      {formatWeight(Math.abs(weightDiff))} kg
+                    </Text>
+                  </View>
+                </View>
               </View>
-            </View>
-          ) : (
+            );
+          })() : (
             <Text style={{ color: textSecondary, fontStyle: 'italic', paddingVertical: 20, textAlign: 'center' }}>
               Not enough weight data to show a trend. Log your weight for a few days!
             </Text>
@@ -364,29 +658,65 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 2,
   },
+  cardHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginBottom: 16,
+  },
   cardTitle: {
     fontSize: 18,
     fontWeight: '700',
-    marginBottom: 20,
+  },
+  cardDateRange: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  selectedDayBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginBottom: 16,
+  },
+  selectedDayText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   chartContainer: {
-    height: 220,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
     position: 'relative',
-    paddingBottom: 22, // Space for x-axis labels
-    paddingTop: 20, // Space for data labels
+    paddingVertical: 10,
+  },
+  calNumbersRow: {
+    flexDirection: 'row',
+    height: 18,
+    marginBottom: 6,
+    alignItems: 'center',
+  },
+  barPlotArea: {
+    flexDirection: 'row',
+    position: 'relative',
+    alignItems: 'flex-end',
+  },
+  dayLabelsRow: {
+    flexDirection: 'row',
+    height: 22,
+    marginTop: 8,
+    alignItems: 'center',
   },
   barCol: {
     alignItems: 'center',
-    width: '12%',
+    flex: 1,
     height: '100%',
     justifyContent: 'flex-end',
+    paddingHorizontal: 1,
   },
   barTrack: {
-    width: '100%',
-    flex: 1,
+    width: 18,
+    maxWidth: '75%',
     backgroundColor: 'rgba(150,150,150,0.1)',
     justifyContent: 'flex-end',
     borderRadius: 6,
@@ -395,6 +725,11 @@ const styles = StyleSheet.create({
   barFill: {
     width: '100%',
     borderRadius: 6,
+  },
+  barCalLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   barLabel: {
     fontSize: 10,
@@ -405,9 +740,10 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
+    height: 1,
     borderTopWidth: 1,
     borderStyle: 'dashed',
-    zIndex: -1,
+    zIndex: 1,
   },
   chartLegend: {
     flexDirection: 'row',

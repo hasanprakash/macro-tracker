@@ -15,18 +15,36 @@ const redisToken = Deno.env.get('UPSTASH_REDIS_REST_TOKEN');
 const redis = (redisUrl && redisToken) ? new Redis({ url: redisUrl, token: redisToken }) : null;
 
 const globalCacheMap = new Map();
+const userGlobalMinuteCacheMap = new Map();
+const userGlobalDailyCacheMap = new Map();
 const burstCacheMap = new Map();
 const dailyCacheMap = new Map();
 
 const globalLimit = parseInt(Deno.env.get('GLOBAL_LIMIT_PER_MINUTE') || '100', 10);
-const burstLimit = parseInt(Deno.env.get('LOG_MEAL_LIMIT_PER_MINUTE') || '10', 10);
-const dailyLimit = parseInt(Deno.env.get('LOG_MEAL_LIMIT_PER_DAY') || '30', 10);
+const userGlobalMinuteLimit = parseInt(Deno.env.get('USER_GLOBAL_LIMIT_PER_MINUTE') || '8', 10);
+const userGlobalDailyLimit = parseInt(Deno.env.get('USER_GLOBAL_LIMIT_PER_DAY') || '20', 10);
+const burstLimit = parseInt(Deno.env.get('EDGE_LIMIT_PER_MINUTE') || Deno.env.get('LOG_MEAL_LIMIT_PER_MINUTE') || '8', 10);
+const dailyLimit = parseInt(Deno.env.get('EDGE_LIMIT_PER_DAY') || Deno.env.get('LOG_MEAL_LIMIT_PER_DAY') || '16', 10);
 
 const globalLimiter = redis ? new Ratelimit({
   redis,
   limiter: Ratelimit.slidingWindow(globalLimit, "1 m"),
   ephemeralCache: globalCacheMap,
   prefix: "ratelimit:global:log-meal"
+}) : null;
+
+const userGlobalMinuteLimiter = redis ? new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(userGlobalMinuteLimit, "1 m"),
+  ephemeralCache: userGlobalMinuteCacheMap,
+  prefix: "ratelimit:user:global:minute"
+}) : null;
+
+const userGlobalDailyLimiter = redis ? new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(userGlobalDailyLimit, "1 d"),
+  ephemeralCache: userGlobalDailyCacheMap,
+  prefix: "ratelimit:user:global:day"
 }) : null;
 
 const burstLimiter = redis ? new Ratelimit({
@@ -100,13 +118,15 @@ Deno.serve(async (req) => {
     const ip = req.headers.get('x-forwarded-for') || req.headers.get('cf-connecting-ip') || 'unknown-ip';
     const identifier = `${user.id}:${ip}`;
 
-    if (globalLimiter && burstLimiter && dailyLimiter) {
+    if (redis) {
       try {
-        // Execute all 3 limit checks in parallel over a single round-trip
-        const [globalRes, burstRes, dailyRes] = await Promise.all([
-          globalLimiter.limit("global"),
-          burstLimiter.limit(identifier),
-          dailyLimiter.limit(identifier),
+        // Execute limit checks in parallel over a single round-trip
+        const [globalRes, userGlobalMinRes, userGlobalDayRes, burstRes, dailyRes] = await Promise.all([
+          globalLimiter ? globalLimiter.limit("global") : { success: true },
+          userGlobalMinuteLimiter ? userGlobalMinuteLimiter.limit(user.id) : { success: true },
+          userGlobalDailyLimiter ? userGlobalDailyLimiter.limit(user.id) : { success: true },
+          burstLimiter ? burstLimiter.limit(identifier) : { success: true },
+          dailyLimiter ? dailyLimiter.limit(identifier) : { success: true },
         ]);
 
         if (!globalRes.success) {
@@ -116,6 +136,32 @@ Deno.serve(async (req) => {
               error: "High server load. Please wait a moment before saving again.",
               retry_after_seconds: retryAfter,
               rate_limited: true
+            }),
+            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": retryAfter.toString() } }
+          );
+        }
+
+        if (!userGlobalMinRes.success) {
+          const retryAfter = Math.ceil((userGlobalMinRes.reset - Date.now()) / 1000);
+          return new Response(
+            JSON.stringify({ 
+              error: `Too many requests across app actions. Please wait ${retryAfter}s before trying again.`,
+              retry_after_seconds: retryAfter,
+              rate_limited: true
+            }),
+            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": retryAfter.toString() } }
+          );
+        }
+
+        if (!userGlobalDayRes.success) {
+          const retryAfter = Math.ceil((userGlobalDayRes.reset - Date.now()) / 1000);
+          const hours = Math.ceil(retryAfter / 3600);
+          return new Response(
+            JSON.stringify({ 
+              error: `Daily limit reached across app actions (${userGlobalDailyLimit} requests/day). Resets in ${hours} hour${hours > 1 ? 's' : ''}.`,
+              retry_after_seconds: retryAfter,
+              rate_limited: true,
+              is_daily_limit: true
             }),
             { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": retryAfter.toString() } }
           );
@@ -138,7 +184,7 @@ Deno.serve(async (req) => {
           const hours = Math.ceil(retryAfter / 3600);
           return new Response(
             JSON.stringify({ 
-              error: `You have reached the daily limit of 30 meal logs. Resets in ${hours} hour${hours > 1 ? 's' : ''}.`,
+              error: `You have reached the daily limit of ${dailyLimit} meal logs. Resets in ${hours} hour${hours > 1 ? 's' : ''}.`,
               retry_after_seconds: retryAfter,
               rate_limited: true,
               is_daily_limit: true
@@ -174,6 +220,39 @@ Deno.serve(async (req) => {
       );
     }
     tParse = Math.round(performance.now() - tParseStart);
+
+    // ── 4b. Max Meals Per Meal Type Check (Business Limit) ────────────
+    const maxMealsPerType = parseInt(Deno.env.get('MAX_MEALS_PER_TYPE_PER_DAY') || '5', 10);
+    const targetSummaryDate = date || new Date().toISOString().split('T')[0];
+
+    let isExistingEntry = false;
+    if (clientMealId) {
+      const { data: existingMeal } = await supabase
+        .from('meal_entries')
+        .select('id')
+        .eq('id', clientMealId)
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (existingMeal) isExistingEntry = true;
+    }
+
+    if (!isExistingEntry) {
+      const { count: mealTypeCount } = await supabase
+        .from('meal_entries')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('meal_type', meal_type)
+        .eq('summary_date', targetSummaryDate);
+
+      if (mealTypeCount !== null && mealTypeCount >= maxMealsPerType) {
+        return new Response(
+          JSON.stringify({ 
+            error: `You can only add a maximum of ${maxMealsPerType} entries for ${meal_type} today.` 
+          }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
 
     // ── 5. Upload Image (if provided) ─────────────────────────────────
     let imagePath = null;
@@ -228,7 +307,11 @@ Deno.serve(async (req) => {
 
     if (rpcError) {
       console.error("DB RPC Error (insert_meal_transaction):", rpcError);
-      throw new Error(rpcError.message || "Failed to save meal entry completely");
+      const isLimitError = rpcError.message?.includes('maximum of 5 entries') || rpcError.message?.includes('maximum of');
+      return new Response(
+        JSON.stringify({ error: rpcError.message || "Failed to save meal entry completely" }),
+        { status: isLimitError ? 400 : 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
     tDb = Math.round(performance.now() - tDbStart);
 

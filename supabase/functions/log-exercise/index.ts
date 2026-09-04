@@ -15,22 +15,40 @@ const redisToken = Deno.env.get('UPSTASH_REDIS_REST_TOKEN');
 const redis = (redisUrl && redisToken) ? new Redis({ url: redisUrl, token: redisToken }) : null;
 
 const globalCacheMap = new Map();
+const userGlobalMinuteCacheMap = new Map();
+const userGlobalDailyCacheMap = new Map();
 const edgeBurstCacheMap = new Map();
 const edgeDailyCacheMap = new Map();
 const aiMinuteCacheMap = new Map();
 const aiDailyCacheMap = new Map();
 
 const globalLimit = parseInt(Deno.env.get('GLOBAL_LIMIT_PER_MINUTE') || '100', 10);
-const edgeBurstLimit = parseInt(Deno.env.get('EDGE_LIMIT_PER_MINUTE') || '5', 10);
-const edgeDailyLimit = parseInt(Deno.env.get('EDGE_LIMIT_PER_DAY') || '15', 10);
-const aiLimitMinute = parseInt(Deno.env.get('AI_LIMIT_PER_MINUTE') || '5', 10);
-const aiLimitDay = parseInt(Deno.env.get('AI_LIMIT_PER_DAY') || '20', 10);
+const userGlobalMinuteLimit = parseInt(Deno.env.get('USER_GLOBAL_LIMIT_PER_MINUTE') || '8', 10);
+const userGlobalDailyLimit = parseInt(Deno.env.get('USER_GLOBAL_LIMIT_PER_DAY') || '20', 10);
+const edgeBurstLimit = parseInt(Deno.env.get('EDGE_LIMIT_PER_MINUTE') || '8', 10);
+const edgeDailyLimit = parseInt(Deno.env.get('EDGE_LIMIT_PER_DAY') || '16', 10);
+const aiLimitMinute = parseInt(Deno.env.get('AI_EMBED_LIMIT_PER_MINUTE') || '5', 10);
+const aiLimitDay = parseInt(Deno.env.get('AI_EMBED_LIMIT_PER_DAY') || '12', 10);
 
 const globalLimiter = redis ? new Ratelimit({
   redis,
   limiter: Ratelimit.slidingWindow(globalLimit, "1 m"),
   ephemeralCache: globalCacheMap,
   prefix: "ratelimit:global:log-exercise"
+}) : null;
+
+const userGlobalMinuteLimiter = redis ? new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(userGlobalMinuteLimit, "1 m"),
+  ephemeralCache: userGlobalMinuteCacheMap,
+  prefix: "ratelimit:user:global:minute"
+}) : null;
+
+const userGlobalDailyLimiter = redis ? new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(userGlobalDailyLimit, "1 d"),
+  ephemeralCache: userGlobalDailyCacheMap,
+  prefix: "ratelimit:user:global:day"
 }) : null;
 
 const edgeBurstLimiter = redis ? new Ratelimit({
@@ -171,9 +189,9 @@ Deno.serve(async (req) => {
       );
     }
 
-    if (text.trim().length > 120) {
+    if (text.trim().length > 150) {
       return new Response(
-        JSON.stringify({ error: 'Workout description is too long (maximum 120 characters).' }),
+        JSON.stringify({ error: 'Workout description is too long (maximum 150 characters).' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -212,7 +230,7 @@ Deno.serve(async (req) => {
     tCache = Math.round(performance.now() - tCacheStart);
 
     // ── 5. Fetch User's Custom API Key (if any) ───────────────────────
-    const tDbStart = performance.now();
+    const tDbApiKeyStart = performance.now();
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
     let customApiKey: string | null = null;
@@ -225,15 +243,18 @@ Deno.serve(async (req) => {
     if (modelData?.custom_api_key && modelData.custom_api_key.trim()) {
       customApiKey = modelData.custom_api_key.trim();
     }
-    tDb = Math.round(performance.now() - tDbStart);
+    tDb += Math.round(performance.now() - tDbApiKeyStart);
 
     // ── 6. Parallel Rate Limiting ─────────────────────────────────────
     const tRateLimitStart = performance.now();
-    if (globalLimiter && edgeBurstLimiter) {
+    if (redis) {
       try {
-        const [globalRes, burstRes] = await Promise.all([
-          globalLimiter.limit("global"),
-          edgeBurstLimiter.limit(identifier),
+        const [globalRes, userGlobalMinRes, userGlobalDayRes, burstRes, edgeDailyRes] = await Promise.all([
+          globalLimiter ? globalLimiter.limit("global") : { success: true },
+          userGlobalMinuteLimiter ? userGlobalMinuteLimiter.limit(identifier) : { success: true },
+          userGlobalDailyLimiter ? userGlobalDailyLimiter.limit(identifier) : { success: true },
+          edgeBurstLimiter ? edgeBurstLimiter.limit(identifier) : { success: true },
+          edgeDailyLimiter ? edgeDailyLimiter.limit(identifier) : { success: true },
         ]);
 
         if (!globalRes.success) {
@@ -248,6 +269,32 @@ Deno.serve(async (req) => {
           );
         }
 
+        if (!userGlobalMinRes.success) {
+          const retryAfter = Math.ceil((userGlobalMinRes.reset - Date.now()) / 1000);
+          return new Response(
+            JSON.stringify({ 
+              error: `Too many requests across app actions. Please wait ${retryAfter}s before trying again.`,
+              retry_after_seconds: retryAfter,
+              rate_limited: true
+            }),
+            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": retryAfter.toString() } }
+          );
+        }
+
+        if (!userGlobalDayRes.success) {
+          const retryAfter = Math.ceil((userGlobalDayRes.reset - Date.now()) / 1000);
+          const hours = Math.ceil(retryAfter / 3600);
+          return new Response(
+            JSON.stringify({ 
+              error: `Daily limit reached across app actions (${userGlobalDailyLimit} requests/day). Resets in ${hours} hour${hours > 1 ? 's' : ''}.`,
+              retry_after_seconds: retryAfter,
+              rate_limited: true,
+              is_daily_limit: true
+            }),
+            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": retryAfter.toString() } }
+          );
+        }
+
         if (!burstRes.success) {
           const retryAfter = Math.ceil((burstRes.reset - Date.now()) / 1000);
           return new Response(
@@ -255,6 +302,20 @@ Deno.serve(async (req) => {
               error: `Too many requests. Please wait ${retryAfter}s before searching exercises again.`,
               retry_after_seconds: retryAfter,
               rate_limited: true
+            }),
+            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": retryAfter.toString() } }
+          );
+        }
+
+        if (!edgeDailyRes.success) {
+          const retryAfter = Math.ceil((edgeDailyRes.reset - Date.now()) / 1000);
+          const hours = Math.ceil(retryAfter / 3600);
+          return new Response(
+            JSON.stringify({ 
+              error: `Daily exercise logging limit reached (${edgeDailyLimit} calls/day). Resets in ${hours} hour${hours > 1 ? 's' : ''}.`,
+              retry_after_seconds: retryAfter,
+              rate_limited: true,
+              is_daily_limit: true
             }),
             { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": retryAfter.toString() } }
           );
@@ -276,7 +337,7 @@ Deno.serve(async (req) => {
           const retryAfter = Math.ceil((minuteRes.reset - Date.now()) / 1000);
           return new Response(
             JSON.stringify({ 
-              error: `Exercise search limit reached. Please wait ${retryAfter}s before trying again.`,
+              error: `Exercise search limit reached (${aiLimitMinute} per minute). Please wait ${retryAfter}s before trying again.`,
               retry_after_seconds: retryAfter,
               rate_limited: true
             }),
@@ -289,7 +350,7 @@ Deno.serve(async (req) => {
           const hours = Math.ceil(retryAfter / 3600);
           return new Response(
             JSON.stringify({ 
-              error: `You've reached your free daily limit of 20 exercise searches. Resets in ${hours} hour${hours > 1 ? 's' : ''}, or add your own Gemini API key in Settings for unlimited searches.`,
+              error: `You've reached your free daily limit of ${aiLimitDay} exercise searches. Resets in ${hours} hour${hours > 1 ? 's' : ''}, or add your own Gemini API key in Settings for unlimited searches.`,
               retry_after_seconds: retryAfter,
               rate_limited: true,
               is_daily_limit: true
@@ -372,7 +433,7 @@ Deno.serve(async (req) => {
     await geminiBreaker.recordSuccess();
 
     // ── 11. Query match_activity_groups RPC in Supabase (pgvector) ────
-    const tDbStart = performance.now();
+    const tDbRpcStart = performance.now();
     const { data: candidates, error: rpcError } = await supabase.rpc('match_activity_groups', {
       query_embedding: `[${embeddingValues.join(',')}]`,
       match_threshold: 0.50,
@@ -383,7 +444,7 @@ Deno.serve(async (req) => {
       console.error("RPC match_activity_groups error:", rpcError);
       throw new Error(`Database vector search failed: ${rpcError.message}`);
     }
-    tDb = Math.round(performance.now() - tDbStart);
+    tDb += Math.round(performance.now() - tDbRpcStart);
 
     // ── 12. Evaluate Confidence & Select Result Format ─────────────────
     let finalResult;

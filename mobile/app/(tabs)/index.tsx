@@ -142,8 +142,10 @@ export default function HomeScreen() {
     insightsTab: insightsTabRef,
   }).current;
 
-  const fetchDashboardData = useCallback(async (uid: string, dateStr: string) => {
-    setIsDashboardLoading(true);
+  const fetchDashboardData = useCallback(async (uid: string, dateStr: string, isSilent: boolean = false) => {
+    if (!isSilent) {
+      setIsDashboardLoading(true);
+    }
     try {
       const { startIso, endIso } = getLocalDayBoundsIso(dateStr);
 
@@ -229,7 +231,9 @@ export default function HomeScreen() {
     } catch (err) {
       console.error("fetchDashboardData error:", err);
     } finally {
-      setIsDashboardLoading(false);
+      if (!isSilent) {
+        setIsDashboardLoading(false);
+      }
     }
   }, []);
 
@@ -471,10 +475,16 @@ export default function HomeScreen() {
 
   const handleSaveProfile = async (profileData: Partial<Profile>) => {
     if (!userId) return;
+    const startingWeight = profileData.weight_kg ?? profile?.starting_weight_kg;
     const { data, error } = await supabase
       .from('profiles')
       .upsert(
-        { ...profileData, id: userId, updated_at: new Date().toISOString() },
+        { 
+          ...profileData, 
+          starting_weight_kg: startingWeight,
+          id: userId, 
+          updated_at: new Date().toISOString() 
+        },
         { onConflict: 'id' }
       )
       .select()
@@ -487,6 +497,22 @@ export default function HomeScreen() {
     
     setProfile(data as Profile);
     setShowOnboarding(false);
+
+    // Record initial starting weight in weight_logs so historical charts start with this baseline
+    if (profileData.weight_kg) {
+      const todayDate = getLocalDateString();
+      await supabase
+        .from('weight_logs')
+        .upsert(
+          {
+            user_id: userId,
+            weight: profileData.weight_kg,
+            log_date: todayDate,
+            recorded_at: new Date().toISOString(),
+          },
+          { onConflict: 'user_id,log_date' }
+        );
+    }
     
     // Check walkthrough after onboarding completes
     const hasSeenWalkthrough = await AsyncStorage.getItem('has_seen_walkthrough');
@@ -632,6 +658,33 @@ export default function HomeScreen() {
     if (!userId) return;
     try {
       const todayDate = selectedDate || getLocalDateString();
+
+      // If user had an earlier starting weight and is logging today, ensure the starting weight
+      // was preserved on their account creation date in weight_logs:
+      const priorWeight = profile?.starting_weight_kg ?? profile?.weight_kg;
+      const accountCreatedDate = profile?.created_at ? profile.created_at.split('T')[0] : null;
+      if (priorWeight && accountCreatedDate && accountCreatedDate < todayDate) {
+        const { count } = await supabase
+          .from('weight_logs')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', userId)
+          .lt('log_date', todayDate);
+
+        if (count === 0) {
+          await supabase
+            .from('weight_logs')
+            .upsert(
+              {
+                user_id: userId,
+                weight: priorWeight,
+                log_date: accountCreatedDate,
+                recorded_at: profile?.created_at || new Date().toISOString(),
+              },
+              { onConflict: 'user_id,log_date' }
+            );
+        }
+      }
+
       const { data, error } = await supabase
         .from('weight_logs')
         .upsert(
@@ -788,7 +841,7 @@ export default function HomeScreen() {
       setReviewVisible(false);
       setEstimate(null);
       setEditingEntry(null);
-      if (userId) fetchDashboardData(userId, selectedDate);
+      if (userId) fetchDashboardData(userId, selectedDate, true);
     } catch (err: any) {
       const isSizeError = err.message?.includes('too large') || err.message?.includes('3MB') || err.message?.includes('413');
       if (isSizeError) {
@@ -1062,12 +1115,26 @@ export default function HomeScreen() {
   const targetCarbs = profile?.target_carbs ? profile.target_carbs + (activityCredit / 4) : undefined;
 
   // Alert user when activity bonus is earned on the home page (only once per date when credit > 0)
+  // Ensures instructional tips/walkthrough finishes first before showing this alert!
   useEffect(() => {
+    let alertTimer: ReturnType<typeof setTimeout> | null = null;
+
     const checkActivityCreditAlert = async () => {
+      // Don't show alert while dashboard is still loading, or while walkthrough/onboarding is active
+      if (isDashboardLoading || showWalkthrough || showOnboarding) {
+        return;
+      }
+
+      // Instructional tips must be completed first before showing active calories burned alert
+      const hasSeenWalkthrough = await AsyncStorage.getItem('has_seen_walkthrough');
+      if (!hasSeenWalkthrough) {
+        return;
+      }
+
       const credit = Math.round(activityCredit);
       const burned = Math.round(totalBurnedCalories);
 
-      if (credit > 0 && burned > 0 && profile?.target_calories && !showWalkthrough && !showOnboarding) {
+      if (credit > 0 && burned > 0 && profile?.target_calories) {
         const key = `has_seen_activity_credit_${selectedDate}`;
         const hasSeen = await AsyncStorage.getItem(key);
         if (!hasSeen) {
@@ -1076,15 +1143,34 @@ export default function HomeScreen() {
           const newTarget = Math.round(baseCals + credit);
           const pct = Math.round(activityCreditFactor * 100);
 
-          showAlert(
-            '⚡ Activity Bonus Added!',
-            `You burned ${burned} kcal through exercise today!\n\nYour target budget increased by +${credit} kcal (${pct}% credit) from ${baseCals} to ${newTarget} kcal to fuel your activity.`
-          );
+          // Small delay so walkthrough modal completely dismisses before the alert presents
+          alertTimer = setTimeout(() => {
+            showAlert(
+              '⚡ Activity Bonus Added!',
+              `You burned ${burned} kcal through exercise today!\n\nYour target budget increased by +${credit} kcal (${pct}% credit) from ${baseCals} to ${newTarget} kcal to fuel your activity.`
+            );
+          }, 400);
         }
       }
     };
+
     checkActivityCreditAlert();
-  }, [activityCredit, profile?.target_calories, selectedDate, showWalkthrough, showOnboarding, activityCreditFactor, totalBurnedCalories]);
+
+    return () => {
+      if (alertTimer) {
+        clearTimeout(alertTimer);
+      }
+    };
+  }, [
+    isDashboardLoading,
+    showWalkthrough,
+    showOnboarding,
+    activityCredit,
+    totalBurnedCalories,
+    profile?.target_calories,
+    selectedDate,
+    activityCreditFactor,
+  ]);
 
   return (
     <SafeAreaView ref={rootRef} style={[styles.container, { backgroundColor: isDark ? '#0F172A' : '#F8FAFC' }]}>

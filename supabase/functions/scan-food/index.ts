@@ -16,14 +16,18 @@ const redisToken = Deno.env.get('UPSTASH_REDIS_REST_TOKEN');
 const redis = (redisUrl && redisToken) ? new Redis({ url: redisUrl, token: redisToken }) : null;
 
 const globalCacheMap = new Map();
+const userGlobalMinuteCacheMap = new Map();
+const userGlobalDailyCacheMap = new Map();
 const edgeBurstCacheMap = new Map();
 const edgeDailyCacheMap = new Map();
 const aiMinuteCacheMap = new Map();
 const aiDailyCacheMap = new Map();
 
 const globalLimit = parseInt(Deno.env.get('GLOBAL_LIMIT_PER_MINUTE') || '100', 10);
-const edgeBurstLimit = parseInt(Deno.env.get('EDGE_LIMIT_PER_MINUTE') || '5', 10);
-const edgeDailyLimit = parseInt(Deno.env.get('EDGE_LIMIT_PER_DAY') || '15', 10);
+const userGlobalMinuteLimit = parseInt(Deno.env.get('USER_GLOBAL_LIMIT_PER_MINUTE') || '8', 10);
+const userGlobalDailyLimit = parseInt(Deno.env.get('USER_GLOBAL_LIMIT_PER_DAY') || '20', 10);
+const edgeBurstLimit = parseInt(Deno.env.get('EDGE_LIMIT_PER_MINUTE') || '8', 10);
+const edgeDailyLimit = parseInt(Deno.env.get('EDGE_LIMIT_PER_DAY') || '16', 10);
 const aiLimitMinute = parseInt(Deno.env.get('AI_LIMIT_PER_MINUTE') || '3', 10);
 const aiLimitDay = parseInt(Deno.env.get('AI_LIMIT_PER_DAY') || '6', 10);
 
@@ -32,6 +36,20 @@ const globalLimiter = redis ? new Ratelimit({
   limiter: Ratelimit.slidingWindow(globalLimit, "1 m"),
   ephemeralCache: globalCacheMap,
   prefix: "ratelimit:global:scan-food"
+}) : null;
+
+const userGlobalMinuteLimiter = redis ? new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(userGlobalMinuteLimit, "1 m"),
+  ephemeralCache: userGlobalMinuteCacheMap,
+  prefix: "ratelimit:user:global:minute"
+}) : null;
+
+const userGlobalDailyLimiter = redis ? new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(userGlobalDailyLimit, "1 d"),
+  ephemeralCache: userGlobalDailyCacheMap,
+  prefix: "ratelimit:user:global:day"
 }) : null;
 
 const edgeBurstLimiter = redis ? new Ratelimit({
@@ -212,9 +230,9 @@ Deno.serve(async (req) => {
       );
     }
 
-    if (text && text.trim().length > 120) {
+    if (text && text.trim().length > 150) {
       return new Response(
-        JSON.stringify({ error: 'Meal description is too long (maximum 120 characters)' }),
+        JSON.stringify({ error: 'Meal description is too long (maximum 150 characters)' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -254,12 +272,14 @@ Deno.serve(async (req) => {
 
     // ── 5. Parallel Global & Edge Function Rate Limiting (Promise.all) ─
     const tRateLimitStart = performance.now();
-    if (globalLimiter && edgeBurstLimiter && edgeDailyLimiter) {
+    if (redis) {
       try {
-        const [globalRes, burstRes, edgeDailyRes] = await Promise.all([
-          globalLimiter.limit("global"),
-          edgeBurstLimiter.limit(identifier),
-          edgeDailyLimiter.limit(identifier),
+        const [globalRes, userGlobalMinRes, userGlobalDayRes, burstRes, edgeDailyRes] = await Promise.all([
+          globalLimiter ? globalLimiter.limit("global") : { success: true },
+          userGlobalMinuteLimiter ? userGlobalMinuteLimiter.limit(identifier) : { success: true },
+          userGlobalDailyLimiter ? userGlobalDailyLimiter.limit(identifier) : { success: true },
+          edgeBurstLimiter ? edgeBurstLimiter.limit(identifier) : { success: true },
+          edgeDailyLimiter ? edgeDailyLimiter.limit(identifier) : { success: true },
         ]);
 
         if (!globalRes.success) {
@@ -269,6 +289,32 @@ Deno.serve(async (req) => {
               error: "High server load. Please wait a moment before trying again.",
               retry_after_seconds: retryAfter,
               rate_limited: true
+            }),
+            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": retryAfter.toString() } }
+          );
+        }
+
+        if (!userGlobalMinRes.success) {
+          const retryAfter = Math.ceil((userGlobalMinRes.reset - Date.now()) / 1000);
+          return new Response(
+            JSON.stringify({ 
+              error: `Too many requests across app actions. Please wait ${retryAfter}s before trying again.`,
+              retry_after_seconds: retryAfter,
+              rate_limited: true
+            }),
+            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": retryAfter.toString() } }
+          );
+        }
+
+        if (!userGlobalDayRes.success) {
+          const retryAfter = Math.ceil((userGlobalDayRes.reset - Date.now()) / 1000);
+          const hours = Math.ceil(retryAfter / 3600);
+          return new Response(
+            JSON.stringify({ 
+              error: `Daily limit reached across app actions (${userGlobalDailyLimit} requests/day). Resets in ${hours} hour${hours > 1 ? 's' : ''}.`,
+              retry_after_seconds: retryAfter,
+              rate_limited: true,
+              is_daily_limit: true
             }),
             { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": retryAfter.toString() } }
           );
@@ -291,7 +337,7 @@ Deno.serve(async (req) => {
           const hours = Math.ceil(retryAfter / 3600);
           return new Response(
             JSON.stringify({ 
-              error: `Daily scan limit reached. Resets in ${hours} hour${hours > 1 ? 's' : ''}.`,
+              error: `Daily scan limit reached (${edgeDailyLimit} scans/day). Resets in ${hours} hour${hours > 1 ? 's' : ''}.`,
               retry_after_seconds: retryAfter,
               rate_limited: true,
               is_daily_limit: true
@@ -309,7 +355,7 @@ Deno.serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
     
-    let aiModel = 'gemini-3.6-flash'; // Safe fallback
+    let aiModel = 'gemini-3.5-flash-lite'; // Safe fallback
     let customApiKey: string | null = null;
     const { data: modelData } = await supabaseAdmin
       .from('user_ai_settings')
@@ -337,7 +383,7 @@ Deno.serve(async (req) => {
           const retryAfter = Math.ceil((minuteRes.reset - Date.now()) / 1000);
           return new Response(
             JSON.stringify({ 
-              error: `AI analysis limit reached (3 per minute). Please wait ${retryAfter}s before trying again.`,
+              error: `AI analysis limit reached (${aiLimitMinute} per minute). Please wait ${retryAfter}s before trying again.`,
               retry_after_seconds: retryAfter,
               rate_limited: true
             }),
@@ -350,7 +396,7 @@ Deno.serve(async (req) => {
           const hours = Math.ceil(retryAfter / 3600);
           return new Response(
             JSON.stringify({ 
-              error: `You've reached your free daily limit of 6 meal scans. Resets in ${hours} hour${hours > 1 ? 's' : ''}, or add your own API key in Settings for unlimited scans.`,
+              error: `You've reached your free daily limit of ${aiLimitDay} meal scans. Resets in ${hours} hour${hours > 1 ? 's' : ''}, or add your own API key in Settings for unlimited scans.`,
               retry_after_seconds: retryAfter,
               rate_limited: true,
               is_daily_limit: true

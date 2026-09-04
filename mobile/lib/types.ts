@@ -14,6 +14,7 @@ export interface Profile {
   activity_level: string | null;
   weight_kg: number | null;
   target_weight_kg: number | null;
+  starting_weight_kg?: number | null;
   age: number | null;
   goal: string | null;
   target_calories: number | null;

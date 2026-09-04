@@ -13,21 +13,49 @@
   Fixed windows suffer from the $2\times$ boundary burst vulnerability (e.g., sending 10 requests at 11:59:59 PM and 10 at 12:00:00 AM, totaling 20 requests in 1 second). Sliding window counter calculates the weighted sum of the current and previous windows, guaranteeing smooth request distribution.
 
 ### Multi-Tiered Quota Architecture:
-1. **Tier 1: Global Sybil & DDoS Barrier**:
-   - `100 req/min` across all edge functions.
-   - Prevents distributed botnets from exhausting Supabase Edge isolates or exhausting connection pools.
-2. **Tier 2: Per-User Burst Limiter**:
-   - `10 req/min` on `log-meal`, `5 req/min` on `scan-food` / `log-exercise`.
-   - Protects against rapid button spamming and UI race conditions.
-3. **Tier 3: Daily Consumption Cap**:
-   - `30 meals/day`, `15 scans/day`, `10 feedback submissions/day`.
-   - Enforces cost controls on cloud infrastructure.
-4. **Tier 4: Third-Party AI Quota (Free Tier vs. BYOK)**:
-   - Free users: `3 req/min` and `6 req/day` for Gemini 2.5 Flash.
-   - BYOK users: Personal Gemini API key is decrypted and authenticated, bypassing platform AI rate limits while retaining edge function burst protection.
+All limits are dynamically configurable from Supabase dashboard secrets via `supabase/functions/.env`:
+
+1. **Tier 1: Global Platform Anti-DDoS Barrier (All Users Together)**:
+   - `100 req/min` platform-wide (`GLOBAL_LIMIT_PER_MINUTE=100`).
+   - **Shared across all users together**: Uses static identifier `"global"`. Protects serverless isolates, database CPU, and connection pools from distributed botnets or unauthenticated traffic floods.
+
+2. **Tier 2: Global Per-User Edge Limits (Cross-Function Aggregated Quota)**:
+   - `8 req/min` (`USER_GLOBAL_LIMIT_PER_MINUTE=8`).
+   - `20 req/day` (`USER_GLOBAL_LIMIT_PER_DAY=20`).
+   - Aggregated across **all edge functions combined** (`scan-food`, `log-meal`, `log-exercise`, `submit-feedback`) per authenticated user ID using shared Upstash Redis keys (`ratelimit:user:global:minute` & `ratelimit:user:global:day`).
+
+3. **Tier 3: General Edge Function Call Limits (Per-Function)**:
+   - `log-meal`, `log-exercise`, `scan-food`: `8 req/min` (`EDGE_LIMIT_PER_MINUTE=8`), `16 req/day` (`EDGE_LIMIT_PER_DAY=16`).
+     *(Note: `log-meal` limits are merged into these general edge limits `EDGE_LIMIT_PER_MINUTE` and `EDGE_LIMIT_PER_DAY`).*
+   - `submit-feedback`: `10 req/day` (`FEEDBACK_LIMIT_PER_DAY=10`), `100 req/day` platform-wide (`FEEDBACK_GLOBAL_LIMIT_PER_DAY=100`).
+
+4. **Tier 4: Third-Party AI Quotas (Free Tier vs. BYOK)**:
+   - **Gemini Vision / Flash Calls (`scan-food`)**: `3 req/min`, `6 req/day` (`AI_LIMIT_PER_MINUTE=3`, `AI_LIMIT_PER_DAY=6`).
+   - **Gemini Embedding Calls (`log-exercise`)**: `5 req/min`, `12 req/day` (`AI_EMBED_LIMIT_PER_MINUTE=5`, `AI_EMBED_LIMIT_PER_DAY=12`).
+   - **BYOK Users**: Personal Gemini API key is decrypted and authenticated, bypassing platform AI rate limits while retaining edge function burst protection.
+
+5. **Tier 5: Domain Business Rules & Meal Type Limits**:
+   - **Max 5 Meals per Meal Type per Day**: Enforces a maximum of 5 entries per meal type (`breakfast`, `lunch`, `dinner`, `snack`, `snacks`) per day (`MAX_MEALS_PER_TYPE_PER_DAY=5`).
+   - **Multi-Layer Enforcement**:
+     - *Client UI*: `openAddFood` in `index.tsx` checks `todaysEntries` and blocks opening modal if 5 entries already exist.
+     - *Edge Function*: `log-meal` pre-validates `meal_type` count before performing image storage uploads.
+     - *PostgreSQL Atomic RPC*: `insert_meal_transaction` executes an atomic `SELECT COUNT(*)` check within the database transaction and aborts with `RAISE EXCEPTION` if limit is reached, eliminating race conditions.
+
+### Standardized Limits Summary Table:
+
+| Scope / Category | Function(s) | Window | Quota | Environment Variable Secret |
+| :--- | :--- | :--- | :--- | :--- |
+| **Gemini AI Vision** | `scan-food` | 1 min / 1 day | `3 / min`, `6 / day` | `AI_LIMIT_PER_MINUTE`, `AI_LIMIT_PER_DAY` |
+| **Gemini Embeddings** | `log-exercise` | 1 min / 1 day | `5 / min`, `12 / day` | `AI_EMBED_LIMIT_PER_MINUTE`, `AI_EMBED_LIMIT_PER_DAY` |
+| **General Edge Calls** | `log-meal`, `log-exercise`, `scan-food` | 1 min / 1 day | `8 / min`, `16 / day` | `EDGE_LIMIT_PER_MINUTE`, `EDGE_LIMIT_PER_DAY` |
+| **Global Per-User** | All Edge Functions Combined | 1 min / 1 day | `8 / min`, `20 / day` | `USER_GLOBAL_LIMIT_PER_MINUTE`, `USER_GLOBAL_LIMIT_PER_DAY` |
+| **Meal Type Quota** | `log-meal`, DB RPC | Per Day | `Max 5 per type` | `MAX_MEALS_PER_TYPE_PER_DAY` |
+| **Platform Anti-DDoS** | All Edge Functions (All Users) | 1 min | `100 / min` | `GLOBAL_LIMIT_PER_MINUTE` |
+| **Feedback Reports** | `submit-feedback` | 1 day | `10 / day` | `FEEDBACK_LIMIT_PER_DAY` |
 
 ### Standardized `429 Too Many Requests` Contract:
 - All rate-limited responses return `HTTP 429` with `Retry-After: <seconds>` headers and JSON payload containing `retry_after_seconds` and specific reset times, allowing the client to show deterministic countdown timers.
+
 
 ---
 

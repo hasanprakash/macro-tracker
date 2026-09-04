@@ -190,3 +190,16 @@ export function calculateNutritionTargets({
     proteinMultiplier: multiplier,
   };
 }
+
+/**
+ * Formats a bodyweight value to preserve exact decimals without unnecessary rounding.
+ * e.g. 58 -> '58', 58.1 -> '58.1', 58.35 -> '58.35'
+ */
+export function formatWeight(w: number | null | undefined): string {
+  if (w === null || w === undefined || isNaN(w)) return '--';
+  const rounded2 = Math.round((w + Number.EPSILON) * 100) / 100;
+  if (Number.isInteger(rounded2)) return rounded2.toString();
+  const rounded1 = Math.round((w + Number.EPSILON) * 10) / 10;
+  if (rounded1 === rounded2) return rounded1.toFixed(1);
+  return rounded2.toFixed(2);
+}
